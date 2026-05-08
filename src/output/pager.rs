@@ -26,9 +26,13 @@ pub fn page_output(output: &str) -> anyhow::Result<()> {
         .spawn()?;
 
     if let Some(stdin) = child.stdin.as_mut() {
-        stdin.write_all(output.as_bytes())?;
+        if let Err(e) = stdin.write_all(output.as_bytes()) {
+            if e.kind() != std::io::ErrorKind::BrokenPipe {
+                return Err(e.into());
+            }
+        }
     }
 
-    child.wait()?;
+    let _ = child.wait();
     Ok(())
 }

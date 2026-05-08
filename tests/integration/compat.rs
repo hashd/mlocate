@@ -16,6 +16,8 @@ fn setup_test_db(dir: &std::path::Path, db: &std::path::Path) {
         .arg(dir)
         .arg("--database")
         .arg(db)
+        .arg("--prunepaths")
+        .arg("/nonexistent-prune-path-mlocate")
         .arg("--quiet")
         .output()
         .unwrap();

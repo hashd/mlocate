@@ -15,6 +15,8 @@ fn index_test_dir(dir: &std::path::Path, db_path: &std::path::Path) {
         .arg(dir.to_str().unwrap())
         .arg("--database")
         .arg(db_path.to_str().unwrap())
+        .arg("--prunepaths")
+        .arg("/nonexistent-prune-path-mlocate")
         .arg("--force")
         .arg("--quiet")
         .output()
@@ -65,6 +67,8 @@ fn test_mupdatedb_incremental_warns() {
         .arg(test_dir.to_str().unwrap())
         .arg("--database")
         .arg(db_path.to_str().unwrap())
+        .arg("--prunepaths")
+        .arg("/nonexistent-prune-path-mlocate")
         .arg("--quiet")
         .output()
         .expect("should run");
@@ -555,6 +559,8 @@ fn index_fixture(dir: &std::path::Path, db: &std::path::Path) {
         .arg(db)
         .arg("--localpaths")
         .arg(dir)
+        .arg("--prunepaths")
+        .arg("/nonexistent-prune-path-mlocate")
         .arg("--quiet");
     let output = cmd.output().unwrap();
     assert!(output.status.success(), "mupdatedb failed: {:?}", output);
@@ -670,6 +676,8 @@ fn test_mupdatedb_incremental_updates_file() {
         .arg(&db)
         .arg("--localpaths")
         .arg(tmp.path())
+        .arg("--prunepaths")
+        .arg("/nonexistent-prune-path-mlocate")
         .arg("--quiet");
     assert!(cmd.status().unwrap().success());
 
@@ -686,6 +694,8 @@ fn test_mupdatedb_incremental_updates_file() {
         .arg(&db)
         .arg("--localpaths")
         .arg(tmp.path())
+        .arg("--prunepaths")
+        .arg("/nonexistent-prune-path-mlocate")
         .arg("--quiet")
         .arg("--incremental");
     assert!(cmd2.status().unwrap().success());
@@ -794,6 +804,8 @@ fn test_no_magic_mime_flag() {
         .arg(&db)
         .arg("--localpaths")
         .arg(tmp.path())
+        .arg("--prunepaths")
+        .arg("/nonexistent-prune-path-mlocate")
         .arg("--quiet")
         .arg("--no-magic-mime");
     let output = cmd.output().unwrap();
