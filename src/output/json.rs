@@ -29,7 +29,8 @@ pub fn render_json_schema(
         "db_size_human": crate::output::human::format_size(db_size_bytes),
         "indexed_files": indexed_files,
         "last_indexed": last_indexed,
-        "schema_version": 1,
+        "schema_version": 2,
+        "format_version": crate::index::header::FORMAT_VERSION,
         "storage": "roaring-bitmap",
         "trigrams": {
             "count": trigram_stats.count,

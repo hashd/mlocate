@@ -1,4 +1,9 @@
+pub mod header;
 pub mod format;
+pub mod writer;
+pub mod reader;
+pub mod dir;
+pub mod stats;
 pub mod trigram;
 pub mod build;
 pub mod search;
