@@ -14,7 +14,11 @@ path = "src/bin/mupdatedb.rs"
 [dependencies]
 clap = { version = "4.5", features = ["derive", "env"] }
 clap_complete = "4.5"
-duckdb = { version = "1.1", features = ["bundled"] }
+roaring = "0.10"
+zstd = "0.13"
+memmap2 = "0.9"
+regex = "1"
+hostname = "0.4"
 ignore = "0.4"
 crossbeam-channel = "0.5"
 dashmap = "6.0"
