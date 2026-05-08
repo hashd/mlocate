@@ -42,4 +42,12 @@ pub enum MlocateError {
     Other(String),
 }
 
+impl From<duckdb::Error> for MlocateError {
+    fn from(e: duckdb::Error) -> Self {
+        MlocateError::DatabaseQueryFailed {
+            details: e.to_string(),
+        }
+    }
+}
+
 pub type Result<T> = std::result::Result<T, anyhow::Error>;
