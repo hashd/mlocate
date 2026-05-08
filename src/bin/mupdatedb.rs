@@ -8,7 +8,7 @@ fn main() -> anyhow::Result<()> {
     let cli = UpdateCli::parse();
 
     if cli.args.install_cron {
-        eprintln!("--install-cron not yet implemented");
+        mlocate::cron::install()?;
         return Ok(());
     }
 
