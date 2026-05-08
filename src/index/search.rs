@@ -171,6 +171,7 @@ pub fn search<'a>(
         (0..reader.num_files() as u32).collect()
     } else {
         let mut candidates: Option<HashSet<u32>> = None;
+        let mut attempted_trigrams = false;
 
         for pattern in patterns {
             if pattern.len() < 3 {
@@ -180,6 +181,8 @@ pub fn search<'a>(
             if tris.is_empty() {
                 continue;
             }
+
+            attempted_trigrams = true;
 
             let mut pattern_and: Option<Vec<u32>> = None;
             for tri in &tris {
@@ -205,12 +208,9 @@ pub fn search<'a>(
             }
         }
 
-        if patterns.iter().any(|p| p.len() < 3) {
+        if !attempted_trigrams {
             let all_ids: HashSet<u32> = (0..reader.num_files() as u32).collect();
-            candidates = match candidates {
-                Some(mut c) => { c.extend(all_ids); Some(c) }
-                None => Some(all_ids),
-            };
+            candidates = Some(all_ids);
         }
 
         let mut ids: Vec<u32> = candidates.unwrap_or_default().into_iter().collect();

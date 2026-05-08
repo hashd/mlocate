@@ -1,7 +1,5 @@
-use crate::crawl::WalkStats;
 use crossbeam_channel::{bounded, Receiver, Sender};
 use std::path::PathBuf;
-use std::sync::Arc;
 
 #[derive(Debug, Clone)]
 pub struct FileEntry {
@@ -29,7 +27,6 @@ pub fn create_channels(extractor_threads: usize, batch_size: usize) -> (Sender<P
 pub fn run_extractor(
     rx: Receiver<PathBuf>,
     tx: Sender<FileEntry>,
-    _stats: Arc<WalkStats>,
 ) {
     while let Ok(path) = rx.recv() {
         let entry = extract_metadata(&path);

@@ -114,26 +114,41 @@ impl IndexConfig {
     }
 }
 
-#[derive(Default)]
 pub struct IndexWriter {
-    files: Vec<DiskFileEntry>,
+    file_dir_buf: io::Cursor<Vec<u8>>,
+    file_offsets: Vec<u64>,
     trigrams: BTreeMap<[u8; 3], RoaringBitmap>,
+}
+
+impl Default for IndexWriter {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl IndexWriter {
     pub fn new() -> Self {
-        Self::default()
+        IndexWriter {
+            file_dir_buf: io::Cursor::new(Vec::new()),
+            file_offsets: Vec::new(),
+            trigrams: BTreeMap::new(),
+        }
     }
 
     pub fn add_file(&mut self, full_path: &str, size: u64, mtime: i64, mode: u32, mime_type: &str) -> u32 {
-        let id = self.files.len() as u32;
-        self.files.push(DiskFileEntry {
-            full_path: full_path.to_string(),
-            size,
-            mtime,
-            mode,
-            mime_type: mime_type.to_string(),
-        });
+        let id = self.file_offsets.len() as u32;
+        self.file_offsets.push(self.file_dir_buf.position());
+
+        let path_bytes = full_path.as_bytes();
+        let mime_bytes = mime_type.as_bytes();
+        self.file_dir_buf.write_all(&(path_bytes.len() as u32).to_le_bytes()).unwrap();
+        self.file_dir_buf.write_all(path_bytes).unwrap();
+        self.file_dir_buf.write_all(&size.to_le_bytes()).unwrap();
+        self.file_dir_buf.write_all(&mtime.to_le_bytes()).unwrap();
+        self.file_dir_buf.write_all(&mode.to_le_bytes()).unwrap();
+        self.file_dir_buf.write_all(&(mime_bytes.len() as u8).to_le_bytes()).unwrap();
+        self.file_dir_buf.write_all(mime_bytes).unwrap();
+
         id
     }
 
@@ -146,8 +161,10 @@ impl IndexWriter {
     }
 
     pub fn write_to<W: Write + Seek>(&self, w: &mut W, config: &IndexConfig) -> io::Result<u64> {
-        let num_files = self.files.len() as u64;
+        let num_files = self.file_offsets.len() as u64;
         let num_trigrams = self.trigrams.len() as u64;
+        let file_dir_data = self.file_dir_buf.get_ref();
+        let file_dir_total_len = file_dir_data.len() as u64;
 
         let placeholder = [0u8; Header::SIZE];
         w.write_all(&placeholder)?;
@@ -158,26 +175,13 @@ impl IndexWriter {
         let config_len = config_data.len() as u32;
 
         let file_dir_offset = w.stream_position()?;
-        let mut file_offsets: Vec<u64> = Vec::with_capacity(self.files.len() + 1);
-        for entry in &self.files {
-            file_offsets.push(w.stream_position()? - file_dir_offset);
-            let path_bytes = entry.full_path.as_bytes();
-            let mime_bytes = entry.mime_type.as_bytes();
-            w.write_all(&(path_bytes.len() as u32).to_le_bytes())?;
-            w.write_all(path_bytes)?;
-            w.write_all(&entry.size.to_le_bytes())?;
-            w.write_all(&entry.mtime.to_le_bytes())?;
-            w.write_all(&entry.mode.to_le_bytes())?;
-            w.write_all(&(mime_bytes.len() as u8).to_le_bytes())?;
-            w.write_all(mime_bytes)?;
-        }
-        let file_dir_total_len = w.stream_position()? - file_dir_offset;
-        file_offsets.push(file_dir_total_len);
+        w.write_all(file_dir_data)?;
 
         let file_offset_dir_offset = w.stream_position()?;
-        for &off in &file_offsets {
+        for &off in &self.file_offsets {
             w.write_all(&off.to_le_bytes())?;
         }
+        w.write_all(&file_dir_total_len.to_le_bytes())?;
 
         let trigram_dir_offset = w.stream_position()?;
         let bitmap_data_offset = trigram_dir_offset + (num_trigrams * 15);
@@ -325,6 +329,59 @@ impl<'a> IndexReader<'a> {
         IndexConfig::from_compressed(&self.data[start..end])
             .map_err(|e| e.to_string())
     }
+
+    pub fn trigram_stats(&self) -> TrigramStats {
+        let n = self.header.num_trigrams as usize;
+        let dir_start = self.header.trigram_dir_offset as usize;
+
+        let mut stats = TrigramStats {
+            count: n,
+            ..Default::default()
+        };
+
+        for i in 0..n {
+            let entry_off = dir_start + i * TrigramEntry::ENTRY_SIZE;
+            if entry_off + TrigramEntry::ENTRY_SIZE > self.data.len() {
+                break;
+            }
+            let entry_bytes = &self.data[entry_off..entry_off + TrigramEntry::ENTRY_SIZE];
+            let entry = TrigramEntry::from_bytes(entry_bytes);
+
+            stats.total_bitmap_bytes += entry.bitmap_len as u64;
+
+            let bm_start = self.header.bitmap_data_offset as usize + entry.bitmap_offset as usize;
+            let bm_end = bm_start + entry.bitmap_len as usize;
+            if bm_end <= self.data.len() {
+                let bm_data = &self.data[bm_start..bm_end];
+                if let Ok(bm) = RoaringBitmap::deserialize_from(bm_data) {
+                    let card = bm.len();
+                    stats.total_docs_indexed += card;
+                    if n == 1 || stats.min_docs == 0 || card < stats.min_docs {
+                        stats.min_docs = card;
+                    }
+                    if card > stats.max_docs {
+                        stats.max_docs = card;
+                    }
+                }
+            }
+        }
+
+        if n > 0 {
+            stats.avg_docs = stats.total_docs_indexed / n as u64;
+        }
+
+        stats
+    }
+}
+
+#[derive(Debug, Clone, Default, serde::Serialize)]
+pub struct TrigramStats {
+    pub count: usize,
+    pub total_bitmap_bytes: u64,
+    pub min_docs: u64,
+    pub max_docs: u64,
+    pub avg_docs: u64,
+    pub total_docs_indexed: u64,
 }
 
 #[cfg(test)]

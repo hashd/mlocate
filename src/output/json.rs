@@ -20,6 +20,7 @@ pub fn render_json_schema(
     db_size_bytes: u64,
     indexed_files: i64,
     last_indexed: &str,
+    trigram_stats: &crate::index::format::TrigramStats,
 ) -> String {
     let schema = serde_json::json!({
         "database": db_path,
@@ -29,6 +30,15 @@ pub fn render_json_schema(
         "last_indexed": last_indexed,
         "schema_version": 1,
         "storage": "roaring-bitmap",
+        "trigrams": {
+            "count": trigram_stats.count,
+            "total_bitmap_bytes": trigram_stats.total_bitmap_bytes,
+            "total_bitmap_human": crate::output::human::format_size(trigram_stats.total_bitmap_bytes as i64),
+            "min_docs_per_trigram": trigram_stats.min_docs,
+            "max_docs_per_trigram": trigram_stats.max_docs,
+            "avg_docs_per_trigram": trigram_stats.avg_docs,
+            "total_trigram_doc_references": trigram_stats.total_docs_indexed
+        },
         "columns": [
             {"name": "full_path", "type": "TEXT", "filterable": true, "description": "Absolute file path"},
             {"name": "size", "type": "INTEGER", "filterable": true, "description": "File size in bytes"},

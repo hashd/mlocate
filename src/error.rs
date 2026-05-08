@@ -35,9 +35,6 @@ pub enum MlocateError {
     #[error("No default paths configured for this platform.")]
     NoDefaultPaths,
 
-    #[error("--incremental is not supported in this version. Full rebuilds are used because they are now fast enough (the DuckDB bottleneck is gone).")]
-    IncrementalNotSupported,
-
     #[error("{0}")]
     Other(String),
 }

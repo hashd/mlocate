@@ -86,8 +86,9 @@ fn main() -> anyhow::Result<()> {
                 .unwrap_or_else(|| "unknown".to_string()),
             Err(_) => "unknown".to_string(),
         };
+        let trigram_stats = reader.trigram_stats();
         let json = output::json::render_json_schema(
-            &db_path, db_size, file_count, &last_idx,
+            &db_path, db_size, file_count, &last_idx, &trigram_stats,
         );
         println!("{}", json);
         return Ok(());
@@ -149,10 +150,15 @@ fn main() -> anyhow::Result<()> {
     let exit_code = if results.is_empty() { 1 } else { 0 };
 
     let use_color = match cli.color {
-        mlocate::cli::ColorMode::Always => true,
-        mlocate::cli::ColorMode::Never => false,
-        mlocate::cli::ColorMode::Auto => {
+        mlocate::cli::ColorMode::Always => {
             colored::control::set_override(true);
+            true
+        }
+        mlocate::cli::ColorMode::Never => {
+            colored::control::set_override(false);
+            false
+        }
+        mlocate::cli::ColorMode::Auto => {
             is_terminal::is_terminal(std::io::stdout())
         }
     };

@@ -67,9 +67,9 @@ fn parse_bytes(input: &str) -> Result<u64, MlocateError> {
 pub fn parse_modified(input: &str) -> Result<ModifiedFilter, MlocateError> {
     let input = input.trim();
     let (value_part, op) = if let Some(stripped) = input.strip_suffix('+') {
-        (stripped, CmpOp::Ge)
-    } else if let Some(stripped) = input.strip_suffix('-') {
         (stripped, CmpOp::Le)
+    } else if let Some(stripped) = input.strip_suffix('-') {
+        (stripped, CmpOp::Ge)
     } else {
         (input, CmpOp::Eq)
     };
@@ -153,11 +153,11 @@ mod tests {
     fn test_parse_modified() {
         let f = parse_modified("2d-").unwrap();
         assert_eq!(f.seconds, 2 * 24 * 3600);
-        assert_eq!(f.operator, CmpOp::Le);
+        assert_eq!(f.operator, CmpOp::Ge);
 
         let f = parse_modified("1w+").unwrap();
         assert_eq!(f.seconds, 7 * 24 * 3600);
-        assert_eq!(f.operator, CmpOp::Ge);
+        assert_eq!(f.operator, CmpOp::Le);
 
         let f = parse_modified("30m").unwrap();
         assert_eq!(f.seconds, 30 * 60);

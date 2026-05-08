@@ -56,7 +56,7 @@ fn main() -> anyhow::Result<()> {
     }
 
     if cli.args.incremental {
-        anyhow::bail!("--incremental is not supported in this version. Full rebuilds are used because they are now fast enough (the DuckDB bottleneck is gone).");
+        eprintln!("Warning: --incremental is not supported in this version. Falling back to full rebuild.");
     }
 
     let localpaths = if cli.args.localpaths.is_empty() {
@@ -94,7 +94,7 @@ fn main() -> anyhow::Result<()> {
         let rx = crawl_rx.clone();
         let tx = extract_tx.clone();
         let handle = std::thread::spawn(move || {
-            pipeline::run_extractor(rx, tx, Arc::new(Default::default()));
+            pipeline::run_extractor(rx, tx);
         });
         extractor_handles.push(handle);
     }

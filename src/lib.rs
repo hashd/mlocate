@@ -8,6 +8,5 @@ pub mod index;
 pub mod output;
 pub mod pipeline;
 pub mod platform;
-pub mod progress;
 
 pub use error::{MlocateError, Result};

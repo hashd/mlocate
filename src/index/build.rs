@@ -50,6 +50,7 @@ pub fn build_index(
 
         stats.files_added.store(i + 1, std::sync::atomic::Ordering::Relaxed);
     }
+    drop(entries);
 
     writer.prune_empty();
 
@@ -73,7 +74,9 @@ pub fn build_index(
 
     if let Some(parent) = db_path.parent() {
         if let Ok(dir) = fs::File::open(parent) {
-            let _ = dir.sync_all();
+            if let Err(e) = dir.sync_all() {
+                eprintln!("Warning: failed to fsync directory: {}", e);
+            }
         }
     }
 
@@ -108,7 +111,9 @@ fn write_empty_index(db_path: &Path, config: &IndexConfig) -> Result<(), Mlocate
     }
     if let Some(parent) = db_path.parent() {
         if let Ok(dir) = fs::File::open(parent) {
-            let _ = dir.sync_all();
+            if let Err(e) = dir.sync_all() {
+                eprintln!("Warning: failed to fsync directory: {}", e);
+            }
         }
     }
     fs::rename(&tmp_path, db_path).map_err(|e| MlocateError::Other(format!(
