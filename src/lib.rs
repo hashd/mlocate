@@ -1,4 +1,5 @@
 pub mod cli;
+pub mod compat;
 pub mod crawl;
 pub mod db;
 pub mod error;

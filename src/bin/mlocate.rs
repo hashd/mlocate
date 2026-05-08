@@ -14,6 +14,7 @@ struct SearchResult {
 
 fn main() -> anyhow::Result<()> {
     let cli = SearchCli::parse();
+    mlocate::compat::warn_gnu_stubs(&cli);
 
     if cli.help {
         SearchCli::command().print_help()?;
