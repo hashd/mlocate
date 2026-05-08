@@ -1,6 +1,9 @@
 use clap::Parser;
 use mlocate::cli::UpdateCli;
 use mlocate::pipeline;
+use mlocate::index::format::IndexConfig;
+use mlocate::index::build::build_index;
+use mlocate::index::format::IndexReader;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Instant;
@@ -52,6 +55,10 @@ fn main() -> anyhow::Result<()> {
         return Ok(());
     }
 
+    if cli.args.incremental {
+        anyhow::bail!("--incremental is not supported in this version. Full rebuilds are used because they are now fast enough (the DuckDB bottleneck is gone).");
+    }
+
     let localpaths = if cli.args.localpaths.is_empty() {
         mlocate::platform::path::default_localpaths()
     } else {
@@ -66,15 +73,12 @@ fn main() -> anyhow::Result<()> {
 
     let db_path = cli.args.database.as_deref();
     let final_db = mlocate::platform::db_path(db_path);
-    let tmp_db = mlocate::platform::tmp_db_path(db_path);
+    let final_db_path = std::path::PathBuf::from(&final_db);
 
     mlocate::platform::ensure_cache_dir(&final_db)?;
-    mlocate::db::cleanup_stale_tmp(
-        std::path::Path::new(&final_db)
-            .parent()
-            .and_then(|p| p.to_str())
-            .unwrap_or("."),
-    )?;
+
+    let db_dir = final_db_path.parent().and_then(|p| p.to_str()).unwrap_or(".");
+    let _ = mlocate::platform::cleanup_stale_tmp(db_dir);
 
     let parallel = cli.args.parallel.unwrap_or_else(mlocate::platform::default_parallel);
 
@@ -85,7 +89,6 @@ fn main() -> anyhow::Result<()> {
 
     let (ticker_running, ticker_handle) = start_progress_ticker(crawl_stats.clone(), cli.args.quiet);
 
-    // Spawn extractor workers
     let mut extractor_handles = Vec::new();
     for _ in 0..parallel {
         let rx = crawl_rx.clone();
@@ -98,7 +101,6 @@ fn main() -> anyhow::Result<()> {
     drop(crawl_rx);
     drop(extract_tx);
 
-    // Start crawling
     let paths = localpaths.clone();
     let prunepaths_clone = prunepaths.clone();
     let cs = crawl_stats.clone();
@@ -126,17 +128,25 @@ fn main() -> anyhow::Result<()> {
         return Ok(());
     }
 
-    // Run batcher
-    let stats = Arc::new(mlocate::crawl::WalkStats::default());
-    pipeline::run_batcher(
+    let config = IndexConfig {
+        indexed_paths: localpaths.clone(),
+        pruned_paths: prunepaths.clone(),
+        timestamp: chrono::Utc::now().timestamp(),
+        hostname: hostname::get()
+            .map(|h| h.to_string_lossy().to_string())
+            .unwrap_or_else(|_| "unknown".to_string()),
+        total_bytes_indexed: 0,
+        mlocate_version: env!("CARGO_PKG_VERSION").to_string(),
+    };
+
+    let build_stats = Arc::new(mlocate::crawl::WalkStats::default());
+    build_index(
         extract_rx,
-        &tmp_db,
-        cli.args.incremental,
-        cli.args.force,
-        stats.clone(),
+        &final_db_path,
+        config,
+        build_stats.clone(),
     )?;
 
-    // Wait for crawler and extractors
     crawl_handle.join().ok();
     for h in extractor_handles {
         h.join().ok();
@@ -144,18 +154,26 @@ fn main() -> anyhow::Result<()> {
 
     stop_progress_ticker(ticker_running, ticker_handle);
 
-    // Atomic swap
-    mlocate::db::atomic_swap(&tmp_db, &final_db)?;
-
-    // Print summary
     if !cli.args.quiet {
         let db_size = std::fs::metadata(&final_db)
             .map(|m| m.len())
             .unwrap_or(0);
-        let conn = mlocate::db::open_or_create(&final_db)?;
-        let file_count: i64 = conn
-            .query_row("SELECT COUNT(*) FROM files", [], |row| row.get(0))
-            .unwrap_or(0);
+
+        let file_count = match std::fs::File::open(&final_db) {
+            Ok(file) => {
+                match unsafe { memmap2::Mmap::map(&file) } {
+                    Ok(mmap) => {
+                        match IndexReader::new(&mmap) {
+                            Ok(reader) => reader.num_files(),
+                            Err(_) => 0,
+                        }
+                    }
+                    Err(_) => 0,
+                }
+            }
+            Err(_) => 0,
+        };
+
         let skipped = crawl_stats.dirs_skipped.load(Ordering::Relaxed);
         let denied = crawl_stats.permission_denied.load(Ordering::Relaxed);
 

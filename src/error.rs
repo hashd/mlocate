@@ -2,14 +2,17 @@ use thiserror::Error;
 
 #[derive(Error, Debug)]
 pub enum MlocateError {
-    #[error("No database found at {path}. Run 'mupdatedb' to create one.")]
-    DatabaseNotFound { path: String },
+    #[error("No index found at {path}. Run 'mupdatedb' to create one.")]
+    IndexNotFound { path: String },
 
-    #[error("Database schema version {found} is not compatible (expected {expected}). Re-index with 'mupdatedb --force'.")]
-    SchemaVersionMismatch { found: i32, expected: i32 },
+    #[error("Index version {found} incompatible (expected {expected}). Re-index with 'mupdatedb'.")]
+    IndexVersionMismatch { found: u32, expected: u32 },
 
-    #[error("Database query failed: {details}. The index may be corrupt. Try running 'mupdatedb --force' to rebuild.")]
-    DatabaseQueryFailed { details: String },
+    #[error("Cannot open index at {path}: {details}")]
+    CannotOpenIndex { path: String, details: String },
+
+    #[error("Index format error: {details}. The index may be corrupt. Try 'mupdatedb' to rebuild.")]
+    IndexFormatError { details: String },
 
     #[error("Invalid size filter '{input}'. Expected format: <value><unit><suffix> (e.g., '10MB+', '1KB-', '500MB').")]
     InvalidSizeFilter { input: String },
@@ -23,31 +26,20 @@ pub enum MlocateError {
     #[error("A search pattern is required. Usage: mlocate [OPTIONS] <pattern>")]
     PatternRequired,
 
-    #[error("Cannot open database at {path}: {details}.")]
-    CannotOpenDatabase { path: String, details: String },
-
     #[error("{flag1} and {flag2} cannot be used together.")]
     ConflictingFlags { flag1: String, flag2: String },
 
-    #[error("Stale temp database found at {path} from a previous crashed run. Delete it and retry.")]
-    StaleTempDatabase { path: String },
-
-    #[error("Failed to checkpoint WAL file after {attempts} retries. Database at {path} may be inconsistent.")]
-    WalCheckpointFailed { path: String, attempts: u32 },
+    #[error("Stale temp index at {path} from a previous crashed run. Delete it and retry.")]
+    StaleTempIndex { path: String },
 
     #[error("No default paths configured for this platform.")]
     NoDefaultPaths,
 
+    #[error("--incremental is not supported in this version. Full rebuilds are used because they are now fast enough (the DuckDB bottleneck is gone).")]
+    IncrementalNotSupported,
+
     #[error("{0}")]
     Other(String),
-}
-
-impl From<duckdb::Error> for MlocateError {
-    fn from(e: duckdb::Error) -> Self {
-        MlocateError::DatabaseQueryFailed {
-            details: e.to_string(),
-        }
-    }
 }
 
 pub type Result<T> = std::result::Result<T, anyhow::Error>;

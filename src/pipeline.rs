@@ -13,15 +13,9 @@ pub struct FileEntry {
     pub dir_path: String,
 }
 
-#[derive(Debug, Clone)]
-pub struct TrigramRow {
-    pub trigram: String,
-    pub file_id: i64,
-}
-
-pub fn channel_sizes(extractor_threads: usize, batch_size: usize) -> (usize, usize) {
+pub fn channel_sizes(extractor_threads: usize, _batch_size: usize) -> (usize, usize) {
     let crawl_to_extract = extractor_threads * 500;
-    let extract_to_batch = extractor_threads * batch_size * 2;
+    let extract_to_batch = extractor_threads * 2000;
     (crawl_to_extract, extract_to_batch)
 }
 
@@ -83,133 +77,27 @@ fn detect_mime(path: &std::path::Path) -> String {
     }
 
     if path.extension().is_none() {
-        let mut buf = vec![0u8; 4096];
-        let bytes_read = match std::fs::File::open(path) {
-            Ok(mut file) => {
-                use std::io::Read;
-                file.read(&mut buf).unwrap_or(0)
+        let path_buf = path.to_path_buf();
+        let handle = std::thread::spawn(move || {
+            let mut buf = vec![0u8; 4096];
+            match std::fs::File::open(&path_buf) {
+                Ok(mut file) => {
+                    use std::io::Read;
+                    let bytes_read = file.read(&mut buf).unwrap_or(0);
+                    if bytes_read > 0 {
+                        buf.truncate(bytes_read);
+                        infer::get(&buf).map(|k| k.mime_type().to_string())
+                    } else {
+                        None
+                    }
+                }
+                Err(_) => None,
             }
-            Err(_) => 0,
-        };
-
-        if bytes_read > 0 {
-            buf.truncate(bytes_read);
-            if let Some(kind) = infer::get(&buf) {
-                return kind.mime_type().to_string();
-            }
+        });
+        if let Ok(Some(mime)) = handle.join() {
+            return mime;
         }
     }
 
     "application/octet-stream".to_string()
-}
-
-pub fn run_batcher(
-    rx: Receiver<FileEntry>,
-    db_path: &str,
-    incremental: bool,
-    force: bool,
-    stats: Arc<WalkStats>,
-) -> Result<(), crate::error::MlocateError> {
-    use crate::db;
-
-    let mut conn = if force || !std::path::Path::new(db_path).exists() {
-        db::create_temp(db_path)?
-    } else {
-        db::open_or_create(db_path)?
-    };
-
-    let batch_size = 1000usize;
-    let mut batch: Vec<FileEntry> = Vec::with_capacity(batch_size);
-    let mut dirs_inserted: std::collections::HashSet<String> = std::collections::HashSet::new();
-
-    while let Ok(entry) = rx.recv() {
-        batch.push(entry);
-
-        if batch.len() >= batch_size {
-            flush_batch(&mut conn, &mut batch, &mut dirs_inserted, incremental, &stats)?;
-        }
-    }
-
-    if !batch.is_empty() {
-        flush_batch(&mut conn, &mut batch, &mut dirs_inserted, incremental, &stats)?;
-    }
-
-    db::close_and_checkpoint(conn)?;
-    Ok(())
-}
-
-fn flush_batch(
-    conn: &mut duckdb::Connection,
-    batch: &mut Vec<FileEntry>,
-    dirs_inserted: &mut std::collections::HashSet<String>,
-    incremental: bool,
-    stats: &Arc<WalkStats>,
-) -> Result<(), crate::error::MlocateError> {
-    use crate::db::trigram::{escape_like, generate_trigrams_lowercase};
-
-    let count = batch.len();
-
-    let tx = conn.transaction().map_err(|e| {
-        crate::error::MlocateError::DatabaseQueryFailed {
-            details: e.to_string(),
-        }
-    })?;
-
-    for entry in batch.drain(..) {
-        if incremental && dirs_inserted.contains(&entry.dir_path) {
-            let escaped = escape_like(&entry.dir_path);
-            tx.execute(
-                "DELETE FROM trigrams WHERE file_id IN (SELECT id FROM files WHERE full_path LIKE ? ESCAPE '\\')",
-                duckdb::params![format!("{}/%", escaped)],
-            )
-            .ok();
-            tx.execute(
-                "DELETE FROM files WHERE full_path LIKE ? ESCAPE '\\'",
-                duckdb::params![format!("{}/%", escaped)],
-            )
-            .ok();
-        }
-
-        let file_id: i64 = tx.query_row(
-            "INSERT INTO files (id, full_path, size, mtime, mode, mime_type) VALUES (nextval('files_id_seq'), ?, ?, ?, ?, ?) ON CONFLICT(full_path) DO UPDATE SET size=EXCLUDED.size, mtime=EXCLUDED.mtime, mode=EXCLUDED.mode, mime_type=EXCLUDED.mime_type RETURNING id",
-            duckdb::params![
-                entry.full_path,
-                entry.size,
-                entry.mtime,
-                entry.mode,
-                entry.mime_type,
-            ],
-            |row| row.get(0),
-        )
-        .map_err(|e| crate::error::MlocateError::DatabaseQueryFailed {
-            details: e.to_string(),
-        })?;
-
-        let trigrams = generate_trigrams_lowercase(&entry.full_path);
-        tx.execute("DELETE FROM trigrams WHERE file_id = ?", duckdb::params![file_id]).ok();
-        for tri in &trigrams {
-            tx.execute(
-                "INSERT INTO trigrams (trigram, file_id) VALUES (?, ?)",
-                duckdb::params![tri, file_id],
-            )
-            .map_err(|e| crate::error::MlocateError::DatabaseQueryFailed {
-                details: e.to_string(),
-            })?;
-        }
-
-        dirs_inserted.insert(entry.dir_path.clone());
-    }
-
-    tx.commit().map_err(|e| crate::error::MlocateError::DatabaseQueryFailed {
-        details: e.to_string(),
-    })?;
-
-    conn.execute("CHECKPOINT", [])
-        .map_err(|e| crate::error::MlocateError::DatabaseQueryFailed {
-            details: e.to_string(),
-        })?;
-
-    stats.files_added.store(count, std::sync::atomic::Ordering::Relaxed);
-
-    Ok(())
 }

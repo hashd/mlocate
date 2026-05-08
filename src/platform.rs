@@ -123,3 +123,11 @@ pub fn default_parallel() -> usize {
         .unwrap_or(4)
         .min(4)
 }
+
+pub fn cleanup_stale_tmp(db_dir: &str) -> Result<(), std::io::Error> {
+    let tmp_db = format!("{}/mlocate.db.tmp", db_dir);
+    if std::path::Path::new(&tmp_db).exists() {
+        std::fs::remove_file(&tmp_db)?;
+    }
+    Ok(())
+}

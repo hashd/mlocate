@@ -27,7 +27,8 @@ pub fn render_json_schema(
         "db_size_human": crate::output::human::format_size(db_size_bytes as i64),
         "indexed_files": indexed_files,
         "last_indexed": last_indexed,
-        "schema_version": crate::db::schema::SCHEMA_VERSION,
+        "schema_version": 1,
+        "storage": "roaring-bitmap",
         "columns": [
             {"name": "full_path", "type": "TEXT", "filterable": true, "description": "Absolute file path"},
             {"name": "size", "type": "INTEGER", "filterable": true, "description": "File size in bytes"},

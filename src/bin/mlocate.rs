@@ -1,16 +1,9 @@
 use clap::CommandFactory;
 use clap::Parser;
 use mlocate::cli::{SearchCli, Shell};
-use mlocate::db::{self, query::build_query};
+use mlocate::index::search::{search, SearchOptions, SearchFilters};
+use mlocate::index::format::IndexReader;
 use mlocate::output;
-
-struct SearchResult {
-    full_path: String,
-    size: i64,
-    mtime: i64,
-    mode: i32,
-    mime_type: String,
-}
 
 fn main() -> anyhow::Result<()> {
     let cli = SearchCli::parse();
@@ -55,25 +48,44 @@ fn main() -> anyhow::Result<()> {
 
     let db_path = mlocate::platform::db_path(cli.database.as_deref());
 
-    if cli.schema {
-        if !std::path::Path::new(&db_path).exists() {
-            eprintln!("Error: No database found at {}. Run 'mupdatedb' to create one.", db_path);
+    if !std::path::Path::new(&db_path).exists() {
+        eprintln!("Error: No index found at {}. Run 'mupdatedb' to create one.", db_path);
+        std::process::exit(2);
+    }
+
+    let file = match std::fs::File::open(&db_path) {
+        Ok(f) => f,
+        Err(e) => {
+            eprintln!("Error: Cannot open index at {}: {}", db_path, e);
             std::process::exit(2);
         }
-        let conn = match db::open_or_create(&db_path) {
-            Ok(c) => c,
-            Err(e) => {
-                eprintln!("Error: {}", e);
-                std::process::exit(2);
-            }
+    };
+
+    let mmap = match unsafe { memmap2::Mmap::map(&file) } {
+        Ok(m) => m,
+        Err(e) => {
+            eprintln!("Error: Cannot memory-map index at {}: {}", db_path, e);
+            std::process::exit(2);
+        }
+    };
+
+    let reader = match IndexReader::new(&mmap) {
+        Ok(r) => r,
+        Err(e) => {
+            eprintln!("Error: The index at {} appears corrupt or from an older version. Run 'mupdatedb' to rebuild. Details: {}", db_path, e);
+            std::process::exit(2);
+        }
+    };
+
+    if cli.schema {
+        let file_count = reader.num_files() as i64;
+        let db_size = std::fs::metadata(&db_path).map(|m| m.len()).unwrap_or(0);
+        let last_idx = match reader.config() {
+            Ok(config) => chrono::DateTime::from_timestamp(config.timestamp, 0)
+                .map(|dt| dt.to_rfc3339())
+                .unwrap_or_else(|| "unknown".to_string()),
+            Err(_) => "unknown".to_string(),
         };
-        let file_count: i64 = conn
-            .query_row("SELECT COUNT(*) FROM files", [], |row| row.get(0))
-            .unwrap_or(0);
-        let db_size = std::fs::metadata(&db_path)
-            .map(|m| m.len())
-            .unwrap_or(0);
-        let last_idx = chrono::Utc::now().to_rfc3339();
         let json = output::json::render_json_schema(
             &db_path, db_size, file_count, &last_idx,
         );
@@ -86,88 +98,52 @@ fn main() -> anyhow::Result<()> {
         std::process::exit(2);
     }
 
-    if !std::path::Path::new(&db_path).exists() {
-        eprintln!("Error: No database found at {}. Run 'mupdatedb' to create one.", db_path);
-        std::process::exit(2);
-    }
+    let size_filter = cli.size.as_deref().map(mlocate::filter::parse_size).transpose()?;
+    let modified_filter = cli.modified.as_deref().map(mlocate::filter::parse_modified).transpose()?;
+    let mime_filter = cli.mime_type.as_deref().map(mlocate::filter::parse_mime_type).transpose()?;
 
-    let conn = match db::open_or_create(&db_path) {
-        Ok(c) => c,
+    let options = SearchOptions {
+        ignore_case: cli.ignore_case,
+        basename: cli.basename,
+        regex: cli.regex,
+        existing: cli.existing,
+        limit: cli.limit,
+    };
+
+    let filters = SearchFilters {
+        size: size_filter,
+        modified: modified_filter,
+        mime: mime_filter,
+    };
+
+    let search_results = match search(&reader, &cli.patterns, &options, &filters) {
+        Ok(r) => r,
         Err(e) => {
             eprintln!("Error: {}", e);
             std::process::exit(2);
         }
     };
 
-    let size_filter = cli.size.as_deref().map(mlocate::filter::parse_size).transpose()?;
-    let modified_filter = cli.modified.as_deref().map(mlocate::filter::parse_modified).transpose()?;
-    let mime_filter = cli.mime_type.as_deref().map(mlocate::filter::parse_mime_type).transpose()?;
-
-    let q = build_query(
-        &cli.patterns,
-        cli.ignore_case,
-        cli.basename,
-        cli.regex,
-        cli.existing,
-        cli.limit,
-        cli.count,
-        size_filter.as_ref(),
-        modified_filter.as_ref(),
-        mime_filter.as_ref(),
-    );
-
-    let mut results: Vec<SearchResult> = Vec::new();
+    let mut results: Vec<mlocate::index::format::DiskFileEntry> = Vec::new();
+    for result in search_results {
+        match result {
+            Ok(entry) => {
+                results.push(entry);
+            }
+            Err(e) => {
+                eprintln!("Warning: {}", e);
+            }
+        }
+    }
 
     if cli.count {
-        let param_values: Vec<&str> = q.params.iter().map(|s| s.as_str()).collect();
-        let count: i64 = conn
-            .query_row(&q.sql, duckdb::params_from_iter(param_values), |row| row.get(0))
-            .unwrap_or_else(|e| {
-                eprintln!("Error: Database query failed: {}. The index may be corrupt. Try running 'mupdatedb --force' to rebuild.", e);
-                std::process::exit(2)
-            });
-
+        let count = results.len() as i64;
         if cli.json {
             println!("{}", output::json::render_json_count(count));
         } else {
             println!("{}", count);
         }
         std::process::exit(if count == 0 { 1 } else { 0 });
-    }
-
-    {
-        let param_values: Vec<&str> = q.params.iter().map(|s| s.as_str()).collect();
-        let mut stmt = conn.prepare(&q.sql).unwrap_or_else(|e| {
-            eprintln!("Error: Database query failed: {}. The index may be corrupt. Try running 'mupdatedb --force' to rebuild.", e);
-            std::process::exit(2)
-        });
-
-        let rows = stmt.query_map(duckdb::params_from_iter(param_values), |row| {
-            Ok(SearchResult {
-                full_path: row.get(1)?,
-                size: row.get(2)?,
-                mtime: row.get(3)?,
-                mode: row.get(4)?,
-                mime_type: row.get(5)?,
-            })
-        }).unwrap_or_else(|e| {
-            eprintln!("Error: Database query failed: {}. The index may be corrupt. Try running 'mupdatedb --force' to rebuild.", e);
-            std::process::exit(2)
-        });
-
-        for row_result in rows {
-            match row_result {
-                Ok(r) => {
-                    if cli.existing && !std::path::Path::new(&r.full_path).exists() {
-                        continue;
-                    }
-                    results.push(r);
-                }
-                Err(e) => {
-                    eprintln!("Warning: failed to read row: {}", e);
-                }
-            }
-        }
     }
 
     let exit_code = if results.is_empty() { 1 } else { 0 };
@@ -186,9 +162,9 @@ fn main() -> anyhow::Result<()> {
             .iter()
             .map(|r| output::json::JsonFileEntry {
                 path: r.full_path.clone(),
-                size: r.size,
+                size: r.size as i64,
                 mtime: r.mtime,
-                mode: r.mode,
+                mode: r.mode as i32,
                 mime_type: r.mime_type.clone(),
             })
             .collect();
@@ -206,7 +182,7 @@ fn main() -> anyhow::Result<()> {
             .iter()
             .map(|r| output::table::TableResult {
                 full_path: r.full_path.clone(),
-                size: r.size,
+                size: r.size as i64,
                 mtime: r.mtime,
                 mime_type: r.mime_type.clone(),
             })
