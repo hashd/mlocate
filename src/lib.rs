@@ -9,4 +9,6 @@ pub mod output;
 pub mod pipeline;
 pub mod platform;
 
-pub use error::{MlocateError, Result};
+pub use error::MlocateError;
+
+pub type Result<T> = std::result::Result<T, anyhow::Error>;

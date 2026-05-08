@@ -8,13 +8,19 @@ pub fn page_output(output: &str) -> anyhow::Result<()> {
     }
 
     let pager = std::env::var("PAGER").unwrap_or_else(|_| "less -R".to_string());
-    let parts: Vec<&str> = pager.split_whitespace().collect();
+    let parts = match shlex::split(&pager) {
+        Some(p) => p,
+        None => {
+            print!("{}", output);
+            return Ok(());
+        }
+    };
     if parts.is_empty() {
         print!("{}", output);
         return Ok(());
     }
 
-    let mut child = Command::new(parts[0])
+    let mut child = Command::new(&parts[0])
         .args(&parts[1..])
         .stdin(Stdio::piped())
         .spawn()?;

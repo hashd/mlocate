@@ -1,9 +1,9 @@
 #[derive(serde::Serialize)]
 pub struct JsonFileEntry {
     pub path: String,
-    pub size: i64,
+    pub size: u64,
     pub mtime: i64,
-    pub mode: i32,
+    pub mode: u32,
     pub mime_type: String,
 }
 
@@ -12,7 +12,8 @@ pub fn render_json(paths: &[JsonFileEntry]) -> String {
 }
 
 pub fn render_json_count(count: i64) -> String {
-    format!("{{\"count\": {}}}", count)
+    let obj = serde_json::json!({"count": count});
+    obj.to_string()
 }
 
 pub fn render_json_schema(
@@ -25,7 +26,7 @@ pub fn render_json_schema(
     let schema = serde_json::json!({
         "database": db_path,
         "db_size_bytes": db_size_bytes,
-        "db_size_human": crate::output::human::format_size(db_size_bytes as i64),
+        "db_size_human": crate::output::human::format_size(db_size_bytes),
         "indexed_files": indexed_files,
         "last_indexed": last_indexed,
         "schema_version": 1,
@@ -33,7 +34,7 @@ pub fn render_json_schema(
         "trigrams": {
             "count": trigram_stats.count,
             "total_bitmap_bytes": trigram_stats.total_bitmap_bytes,
-            "total_bitmap_human": crate::output::human::format_size(trigram_stats.total_bitmap_bytes as i64),
+            "total_bitmap_human": crate::output::human::format_size(trigram_stats.total_bitmap_bytes),
             "min_docs_per_trigram": trigram_stats.min_docs,
             "max_docs_per_trigram": trigram_stats.max_docs,
             "avg_docs_per_trigram": trigram_stats.avg_docs,

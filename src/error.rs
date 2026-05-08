@@ -8,9 +8,6 @@ pub enum MlocateError {
     #[error("Index version {found} incompatible (expected {expected}). Re-index with 'mupdatedb'.")]
     IndexVersionMismatch { found: u32, expected: u32 },
 
-    #[error("Cannot open index at {path}: {details}")]
-    CannotOpenIndex { path: String, details: String },
-
     #[error("Index format error: {details}. The index may be corrupt. Try 'mupdatedb' to rebuild.")]
     IndexFormatError { details: String },
 
@@ -23,20 +20,11 @@ pub enum MlocateError {
     #[error("Invalid MIME type '{input}'. Expected format: 'image/png' (exact) or 'image/*' (glob).")]
     InvalidMimeType { input: String },
 
-    #[error("A search pattern is required. Usage: mlocate [OPTIONS] <pattern>")]
-    PatternRequired,
-
-    #[error("{flag1} and {flag2} cannot be used together.")]
-    ConflictingFlags { flag1: String, flag2: String },
-
-    #[error("Stale temp index at {path} from a previous crashed run. Delete it and retry.")]
-    StaleTempIndex { path: String },
-
-    #[error("No default paths configured for this platform.")]
-    NoDefaultPaths,
+    #[error("Index is locked by another process. If no other process is running, remove {path} and retry.")]
+    IndexLocked { path: String },
 
     #[error("{0}")]
     Other(String),
 }
 
-pub type Result<T> = std::result::Result<T, anyhow::Error>;
+pub type Result<T> = std::result::Result<T, MlocateError>;

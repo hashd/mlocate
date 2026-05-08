@@ -1,8 +1,4 @@
-pub fn format_size(bytes: i64) -> String {
-    if bytes < 0 {
-        return "0 B".to_string();
-    }
-    let bytes = bytes as u64;
+pub fn format_size(bytes: u64) -> String {
     if bytes < 1024 {
         format!("{} B", bytes)
     } else if bytes < 1024 * 1024 {
@@ -39,7 +35,7 @@ pub fn format_relative_time(mtime: i64) -> String {
     format!("{} months ago", diff / 2592000)
 }
 
-pub fn format_size_color(bytes: i64) -> colored::Color {
+pub fn format_size_color(bytes: u64) -> colored::Color {
     use colored::Color;
     if bytes < 1024 {
         Color::TrueColor { r: 128, g: 128, b: 128 }

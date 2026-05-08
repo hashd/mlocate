@@ -86,10 +86,17 @@ fn path_matches(path: &str, pattern: &str, opts: &SearchOptions) -> bool {
     };
 
     if opts.ignore_case {
-        target.to_ascii_lowercase().contains(&pattern.to_ascii_lowercase())
+        let folded_target = casefold(target);
+        let folded_pat = casefold(pattern);
+        folded_target.contains(&folded_pat)
     } else {
         target.contains(pattern)
     }
+}
+
+fn casefold(s: &str) -> String {
+    let normalized = unicode_normalization::UnicodeNormalization::nfc(s);
+    caseless::default_case_fold_str(&normalized.collect::<String>())
 }
 
 fn filter_matches(entry: &DiskFileEntry, filters: &SearchFilters, now: i64) -> bool {
@@ -149,53 +156,45 @@ pub fn search<'a>(
     }
 
     let candidate_ids: RoaringBitmap = if options.regex {
-        let regexes: Vec<Regex> = patterns.iter().map(|p| {
-            let pattern = if options.ignore_case {
-                format!("(?i){}", p)
-            } else {
-                p.clone()
-            };
-            Regex::new(&pattern).map_err(|e| MlocateError::Other(format!("Invalid regex '{}': {}", p, e)))
-        }).collect::<Result<Vec<_>, _>>()?;
-
-        let mut bm = RoaringBitmap::new();
-        for i in 0..reader.num_files() as u32 {
-            let path = reader.file_path(i).map_err(|e| MlocateError::IndexFormatError { details: e })?;
-            let target = if options.basename {
-                match path.rfind('/') {
-                    Some(idx) => &path[idx + 1..],
-                    None => &path,
-                }
-            } else {
-                &path
-            };
-            if regexes.iter().any(|r| r.is_match(target)) {
-                bm.insert(i);
-            }
-            if let Some(limit) = options.limit {
-                if bm.len() as usize >= limit {
-                    break;
-                }
-            }
-        }
-        bm
+        regex_search(reader, patterns, options, filters)?
     } else if patterns.is_empty() {
         (0..reader.num_files() as u32).collect()
     } else {
-        let mut trigram_cache: HashMap<[u8; 3], RoaringBitmap> = HashMap::new();
-        let mut candidates: Option<RoaringBitmap> = None;
-        let mut attempted_trigrams = false;
+        trigram_search(reader, patterns, options, filters)?
+    };
 
-        for pattern in patterns {
-            if pattern.len() < 3 {
-                continue;
-            }
-            let tris = trigram::generate_trigrams_lowercase(pattern);
-            if tris.is_empty() {
-                continue;
-            }
+    Ok(SearchResults {
+        reader,
+        candidate_ids,
+        patterns: patterns.to_vec(),
+        options: options.clone(),
+        filters: filters.clone(),
+        position: 0,
+        emitted: 0,
+        now,
+    })
+}
 
-            attempted_trigrams = true;
+fn trigram_search(
+    reader: &IndexReader,
+    patterns: &[String],
+    options: &SearchOptions,
+    _filters: &SearchFilters,
+) -> Result<RoaringBitmap, MlocateError> {
+    let mut trigram_cache: HashMap<[u8; 3], RoaringBitmap> = HashMap::new();
+    let mut bigram_cache: HashMap<[u8; 2], RoaringBitmap> = HashMap::new();
+    let mut candidates: Option<RoaringBitmap> = None;
+    let mut attempted = false;
+
+    for pattern in patterns {
+        let tris = if options.ignore_case {
+            trigram::generate_trigrams_lowercase(pattern)
+        } else {
+            trigram::generate_trigrams(pattern)
+        };
+
+        if !tris.is_empty() && pattern.len() >= 3 {
+            attempted = true;
 
             let mut pattern_and: Option<RoaringBitmap> = None;
             for tri in &tris {
@@ -220,26 +219,140 @@ pub fn search<'a>(
                     Some(existing) => Some(existing | ids),
                 };
             }
+        } else if pattern.len() == 2 {
+            attempted = true;
+            let bis = if options.ignore_case {
+                trigram::generate_bigrams_lowercase(pattern)
+            } else {
+                trigram::generate_bigrams(pattern)
+            };
+
+            if !bis.is_empty() {
+                let mut pattern_and: Option<RoaringBitmap> = None;
+                for bi in &bis {
+                    let key = trigram::bigram_to_bytes(bi);
+                    let bm = match bigram_cache.get(&key) {
+                        Some(bm) => bm.clone(),
+                        None => {
+                            let bm = reader.bigram_bitmap(key).unwrap_or_default();
+                            bigram_cache.insert(key, bm.clone());
+                            bm
+                        }
+                    };
+                    pattern_and = match pattern_and {
+                        None => Some(bm),
+                        Some(existing) => Some(existing & bm),
+                    };
+                }
+
+                if let Some(ids) = pattern_and {
+                    candidates = match candidates {
+                        None => Some(ids),
+                        Some(existing) => Some(existing | ids),
+                    };
+                }
+            }
         }
+    }
 
-        if !attempted_trigrams {
-            let all: RoaringBitmap = (0..reader.num_files() as u32).collect();
-            candidates = Some(all);
+    if !attempted {
+        let all: RoaringBitmap = (0..reader.num_files() as u32).collect();
+        candidates = Some(all);
+    }
+
+    Ok(candidates.unwrap_or_default())
+}
+
+fn extract_regex_literals(pattern: &str) -> Vec<String> {
+    let mut literals = Vec::new();
+    let mut current = String::new();
+    let special = "+*?|^$.[](){}\\";
+
+    for ch in pattern.chars() {
+        if special.contains(ch) {
+            if current.len() >= 2 {
+                literals.push(current.clone());
+            }
+            current.clear();
+        } else {
+            current.push(ch);
         }
+    }
+    if current.len() >= 2 {
+        literals.push(current);
+    }
+    literals
+}
 
-        candidates.unwrap_or_default()
-    };
+fn regex_search(
+    reader: &IndexReader,
+    patterns: &[String],
+    options: &SearchOptions,
+    _filters: &SearchFilters,
+) -> Result<RoaringBitmap, MlocateError> {
+    let regexes: Vec<Regex> = patterns.iter().map(|p| {
+        let pattern = if options.ignore_case {
+            format!("(?i){}", p)
+        } else {
+            p.clone()
+        };
+        Regex::new(&pattern).map_err(|e| MlocateError::Other(format!("Invalid regex '{}': {}", p, e)))
+    }).collect::<Result<Vec<_>, _>>()?;
 
-    Ok(SearchResults {
-        reader,
-        candidate_ids,
-        patterns: patterns.to_vec(),
-        options: options.clone(),
-        filters: filters.clone(),
-        position: 0,
-        emitted: 0,
-        now,
-    })
+    let mut candidates: Option<RoaringBitmap> = None;
+    for pattern in patterns {
+        let literals = extract_regex_literals(pattern);
+        for lit in &literals {
+            if lit.len() >= 3 {
+                let tris = if options.ignore_case {
+                    trigram::generate_trigrams_lowercase(lit)
+                } else {
+                    trigram::generate_trigrams(lit)
+                };
+                let mut lit_and: Option<RoaringBitmap> = None;
+                for tri in &tris {
+                    let key = trigram::trigram_to_bytes(tri);
+                    let bm = reader.trigram_bitmap(key).unwrap_or_default();
+                    lit_and = match lit_and {
+                        None => Some(bm),
+                        Some(existing) => Some(existing & bm),
+                    };
+                }
+                if let Some(ids) = lit_and {
+                    candidates = match candidates {
+                        None => Some(ids),
+                        Some(existing) => Some(existing & ids),
+                    };
+                }
+            }
+        }
+    }
+
+    let pre_filtered = candidates.unwrap_or_else(|| {
+        (0..reader.num_files() as u32).collect()
+    });
+
+    let mut bm = RoaringBitmap::new();
+    for doc_id in pre_filtered.iter() {
+        let path = reader.file_path(doc_id).map_err(|e| MlocateError::IndexFormatError { details: e })?;
+        let target = if options.basename {
+            match path.rfind('/') {
+                Some(idx) => &path[idx + 1..],
+                None => &path,
+            }
+        } else {
+            &path
+        };
+        if regexes.iter().any(|r| r.is_match(target)) {
+            bm.insert(doc_id);
+        }
+        if let Some(limit) = options.limit {
+            if bm.len() as usize >= limit {
+                break;
+            }
+        }
+    }
+    Ok(bm)
 }
 
 #[cfg(test)]
@@ -261,17 +374,27 @@ mod tests {
     fn build_test_data() -> TestData {
         let mut writer = IndexWriter::new();
         let files = vec![
-            ("/home/user/foo.rs", 1234i64, 1746720000i64, 0o644u32, "text/x-rust"),
-            ("/home/user/bar.txt", 5678i64, 1746720100i64, 0o644u32, "text/plain"),
-            ("/etc/config.toml", 100i64, 1746700000i64, 0o600u32, "application/octet-stream"),
-            ("/home/user/README.md", 2000i64, 1746800000i64, 0o644u32, "text/markdown"),
-            ("/var/log/syslog", 500000i64, 1746600000i64, 0o600u32, "text/plain"),
+            ("/home/user/foo.rs", 1234u64, 1746720000i64, 0o644u32, "text/x-rust"),
+            ("/home/user/bar.txt", 5678u64, 1746720100i64, 0o644u32, "text/plain"),
+            ("/etc/config.toml", 100u64, 1746700000i64, 0o600u32, "application/octet-stream"),
+            ("/home/user/README.md", 2000u64, 1746800000i64, 0o644u32, "text/markdown"),
+            ("/var/log/syslog", 500000u64, 1746600000i64, 0o600u32, "text/plain"),
         ];
         for (path, size, mtime, mode, mime) in &files {
-            let id = writer.add_file(path, *size as u64, *mtime, *mode, mime);
+            let id = writer.add_file(path, *size, *mtime, *mode, mime);
             let tris = trigram::generate_trigrams_lowercase(path);
             for tri in &tris {
                 writer.add_trigram_doc(trigram::trigram_to_bytes(tri), id);
+            }
+            let bis = trigram::generate_bigrams_lowercase(path);
+            for bi in &bis {
+                writer.add_bigram_doc(trigram::bigram_to_bytes(bi), id);
+            }
+            if let Some(ext) = std::path::Path::new(path).extension().and_then(|e| e.to_str()) {
+                let mut ext_key = [0u8; 8];
+                let eb = ext.as_bytes();
+                ext_key[..eb.len().min(8)].copy_from_slice(eb);
+                writer.add_ext_doc(ext_key, id);
             }
         }
         writer.prune_empty();

@@ -5,7 +5,7 @@ use comfy_table::*;
 
 pub struct TableResult {
     pub full_path: String,
-    pub size: i64,
+    pub size: u64,
     pub mtime: i64,
     pub mime_type: String,
 }

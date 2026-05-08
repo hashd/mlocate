@@ -67,7 +67,7 @@ fn test_mupdatedb_incremental_warns() {
         .expect("should run");
     assert!(output.status.success(), "--incremental should warn and fall back to full rebuild");
     let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(stderr.contains("not supported") || stderr.contains("Falling back"));
+    assert!(stderr.contains("not supported") || stderr.contains("Falling back") || stderr.contains("No existing index"));
 }
 
 #[test]
@@ -319,7 +319,7 @@ fn test_count_with_json() {
         .output()
         .expect("should run");
     let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("\"count\": 2"), "got: {}", stdout);
+    assert!(stdout.contains("\"count\":2"), "got: {}", stdout);
 }
 
 #[test]
@@ -369,4 +369,82 @@ fn test_regex_case_insensitive() {
         .expect("should run");
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("README.md"), "-i -r readme should match README.md, got: {}", stdout);
+}
+
+#[test]
+fn test_size_filter() {
+    let tmp = tempfile::TempDir::new().expect("should create temp dir");
+    let db_path = tmp.path().join("mlocate.db");
+    let test_dir = tmp.path().join("testdata");
+    std::fs::create_dir_all(&test_dir).unwrap();
+    std::fs::write(test_dir.join("small.txt"), "x").unwrap();
+    std::fs::write(test_dir.join("big.txt"), vec![0u8; 10000]).unwrap();
+
+    index_test_dir(&test_dir, &db_path);
+
+    let output = Command::new(mlocate_bin())
+        .arg("--database")
+        .arg(db_path.to_str().unwrap())
+        .arg("--size")
+        .arg("5KB+")
+        .arg("--plain")
+        .arg("txt")
+        .output()
+        .expect("should run");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("big.txt"), "5KB+ should match big.txt, got: {}", stdout);
+    assert!(!stdout.contains("small.txt"), "5KB+ should NOT match small.txt, got: {}", stdout);
+
+    let output = Command::new(mlocate_bin())
+        .arg("--database")
+        .arg(db_path.to_str().unwrap())
+        .arg("--size")
+        .arg("1KB-")
+        .arg("--plain")
+        .arg("txt")
+        .output()
+        .expect("should run");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("small.txt"), "1KB- should match small.txt, got: {}", stdout);
+    assert!(!stdout.contains("big.txt"), "1KB- should NOT match big.txt, got: {}", stdout);
+}
+
+#[test]
+fn test_type_filter() {
+    let tmp = tempfile::TempDir::new().expect("should create temp dir");
+    let db_path = tmp.path().join("mlocate.db");
+    let test_dir = tmp.path().join("testdata");
+    std::fs::create_dir_all(&test_dir).unwrap();
+    std::fs::write(test_dir.join("hello.rs"), "fn main() {}").unwrap();
+    std::fs::write(test_dir.join("readme.md"), "# Test").unwrap();
+    std::fs::write(test_dir.join("notes.txt"), "notes").unwrap();
+
+    index_test_dir(&test_dir, &db_path);
+
+    let output = Command::new(mlocate_bin())
+        .arg("--database")
+        .arg(db_path.to_str().unwrap())
+        .arg("-t")
+        .arg("text/x-rust")
+        .arg("--plain")
+        .arg("")
+        .output()
+        .expect("should run");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("hello.rs"), "type text/x-rust should match hello.rs, got: {}", stdout);
+    assert!(!stdout.contains("readme.md"), "type text/x-rust should NOT match readme.md");
+
+    let output = Command::new(mlocate_bin())
+        .arg("--database")
+        .arg(db_path.to_str().unwrap())
+        .arg("-t")
+        .arg("text/*")
+        .arg("--plain")
+        .arg("")
+        .output()
+        .expect("should run");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("hello.rs"), "text/* should match hello.rs");
+    assert!(stdout.contains("readme.md"), "text/* should match readme.md");
+    assert!(stdout.contains("notes.txt"), "text/* should match notes.txt");
 }

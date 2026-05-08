@@ -6,6 +6,8 @@ use mlocate::index::format::IndexReader;
 use mlocate::output;
 
 fn main() -> anyhow::Result<()> {
+    install_sigbus_handler();
+
     let cli = SearchCli::parse();
 
     mlocate::compat::warn_gnu_stubs(&cli);
@@ -49,14 +51,21 @@ fn main() -> anyhow::Result<()> {
     let db_path = mlocate::platform::db_path(cli.database.as_deref());
 
     if !std::path::Path::new(&db_path).exists() {
-        eprintln!("Error: No index found at {}. Run 'mupdatedb' to create one.", db_path);
+        eprintln!("mlocate: no index found at {}. Run 'mupdatedb' to create one.", db_path);
         std::process::exit(2);
+    }
+
+    if cli.verbose {
+        let lock_path = format!("{}.lock", db_path);
+        if std::path::Path::new(&lock_path).exists() {
+            eprintln!("mlocate: index {} is currently being updated (lock file present). Results may be stale.", db_path);
+        }
     }
 
     let file = match std::fs::File::open(&db_path) {
         Ok(f) => f,
         Err(e) => {
-            eprintln!("Error: Cannot open index at {}: {}", db_path, e);
+            eprintln!("mlocate: cannot open index at {}: {}", db_path, e);
             std::process::exit(2);
         }
     };
@@ -64,7 +73,7 @@ fn main() -> anyhow::Result<()> {
     let mmap = match unsafe { memmap2::Mmap::map(&file) } {
         Ok(m) => m,
         Err(e) => {
-            eprintln!("Error: Cannot memory-map index at {}: {}", db_path, e);
+            eprintln!("mlocate: cannot memory-map index at {}: {}", db_path, e);
             std::process::exit(2);
         }
     };
@@ -72,14 +81,14 @@ fn main() -> anyhow::Result<()> {
     let reader = match IndexReader::new(&mmap) {
         Ok(r) => r,
         Err(e) => {
-            eprintln!("Error: The index at {} appears corrupt or from an older version. Run 'mupdatedb' to rebuild. Details: {}", db_path, e);
+            eprintln!("mlocate: the index at {} appears corrupt or from an incompatible version. Run 'mupdatedb' to rebuild. Details: {}", db_path, e);
             std::process::exit(2);
         }
     };
 
-    if cli.schema {
-        if !cli.patterns.is_empty() {
-            eprintln!("Warning: --schema ignores search patterns.");
+    if cli.stats {
+        if !cli.patterns.is_empty() && cli.verbose {
+            eprintln!("mlocate: --statistics ignores search patterns.");
         }
         let file_count = reader.num_files() as i64;
         let db_size = std::fs::metadata(&db_path).map(|m| m.len()).unwrap_or(0);
@@ -98,7 +107,7 @@ fn main() -> anyhow::Result<()> {
     }
 
     if cli.patterns.is_empty() {
-        eprintln!("Error: A search pattern is required. Usage: mlocate [OPTIONS] <pattern>");
+        eprintln!("mlocate: a search pattern is required. Usage: mlocate [OPTIONS] <pattern>");
         std::process::exit(2);
     }
 
@@ -123,7 +132,7 @@ fn main() -> anyhow::Result<()> {
     let search_results = match search(&reader, &cli.patterns, &options, &filters) {
         Ok(r) => r,
         Err(e) => {
-            eprintln!("Error: {}", e);
+            eprintln!("mlocate: {}", e);
             std::process::exit(2);
         }
     };
@@ -135,7 +144,7 @@ fn main() -> anyhow::Result<()> {
                 results.push(entry);
             }
             Err(e) => {
-                eprintln!("Warning: {}", e);
+                eprintln!("mlocate: {}", e);
             }
         }
     }
@@ -171,9 +180,9 @@ fn main() -> anyhow::Result<()> {
             .iter()
             .map(|r| output::json::JsonFileEntry {
                 path: r.full_path.clone(),
-                size: r.size as i64,
+                size: r.size,
                 mtime: r.mtime,
-                mode: r.mode as i32,
+                mode: r.mode,
                 mime_type: r.mime_type.clone(),
             })
             .collect();
@@ -191,7 +200,7 @@ fn main() -> anyhow::Result<()> {
             .iter()
             .map(|r| output::table::TableResult {
                 full_path: r.full_path.clone(),
-                size: r.size as i64,
+                size: r.size,
                 mtime: r.mtime,
                 mime_type: r.mime_type.clone(),
             })
@@ -207,4 +216,13 @@ fn main() -> anyhow::Result<()> {
     }
 
     std::process::exit(exit_code);
+}
+
+fn install_sigbus_handler() {
+    unsafe {
+        let _ = signal_hook::low_level::register(signal_hook::consts::SIGBUS, || {
+            eprintln!("mlocate: the index file was modified during search. Run 'mupdatedb' and retry.");
+            std::process::exit(2);
+        });
+    }
 }

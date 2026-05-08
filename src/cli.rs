@@ -4,10 +4,10 @@ use clap::{Args, Parser, ValueEnum};
 #[command(name = "mlocate", about = "Modern locate alternative", long_about = None, disable_help_flag = true)]
 pub struct SearchCli {
     /// Literal substring match on full path (default). Multiple patterns combined with OR.
-    #[arg(required_unless_present_any = ["schema", "help", "version"])]
+    #[arg(required_unless_present_any = ["stats", "help", "version"])]
     pub patterns: Vec<String>,
 
-    /// Case-insensitive matching (ASCII only).
+    /// Case-insensitive matching (full Unicode case folding).
     #[arg(short = 'i', long = "ignore-case")]
     pub ignore_case: bool,
 
@@ -16,7 +16,6 @@ pub struct SearchCli {
     pub basename: bool,
 
     /// Treat pattern as regex instead of literal substring.
-    /// Uses RE2 — no backreferences, lookahead, or lookbehind.
     #[arg(short = 'r', long = "regex")]
     pub regex: bool,
 
@@ -36,7 +35,7 @@ pub struct SearchCli {
     #[arg(short = '0', long = "null", conflicts_with_all = ["table", "json", "plain"])]
     pub null: bool,
 
-    /// Filter by file size. Format: <value><unit><suffix>. Examples: '10MB+', '1KB-', '500MB'.
+    /// Filter by file size. Format: <value><unit><suffix>.Examples: '10MB+', '1KB-', '500MB'.
     #[arg(long = "size", verbatim_doc_comment)]
     pub size: Option<String>,
 
@@ -53,9 +52,9 @@ pub struct SearchCli {
     #[arg(long = "gnu")]
     pub gnu: bool,
 
-    /// Print database statistics.
-    #[arg(short = 'S', long = "schema")]
-    pub schema: bool,
+    /// Print database statistics as JSON.
+    #[arg(short = 'S', long = "statistics", visible_aliases = ["schema", "stats"])]
+    pub stats: bool,
 
     /// Override database file path.
     #[arg(long = "database", verbatim_doc_comment)]
@@ -80,6 +79,10 @@ pub struct SearchCli {
     /// Color control: auto (default), always, never.
     #[arg(long = "color", default_value = "auto")]
     pub color: ColorMode,
+
+    /// Verbose output.
+    #[arg(short = 'v', long = "verbose")]
+    pub verbose: bool,
 
     /// Print shell completion script.
     #[arg(long = "generate-completions", value_enum)]
@@ -122,11 +125,11 @@ pub struct UpdateArgs {
     #[arg(long = "prunepaths")]
     pub prunepaths: Vec<String>,
 
-    /// Skip subtrees with unchanged directory mtime.
+    /// Skip subtrees with unchanged directory mtime (requires existing index).
     #[arg(long = "incremental")]
     pub incremental: bool,
 
-    /// Ignore existing database and perform a full reindex.
+    /// Perform a full reindex (ignore existing directory table).
     #[arg(long = "force")]
     pub force: bool,
 
@@ -146,6 +149,10 @@ pub struct UpdateArgs {
     #[arg(long = "quiet")]
     pub quiet: bool,
 
+    /// Verbose output.
+    #[arg(short = 'v', long = "verbose")]
+    pub verbose: bool,
+
     /// Install auto-index scheduling for the current user.
     #[arg(long = "install-cron")]
     pub install_cron: bool,
@@ -156,6 +163,10 @@ pub struct UpdateArgs {
 pub struct UpdateCli {
     #[command(flatten)]
     pub args: UpdateArgs,
+
+    /// Print version.
+    #[arg(short = 'V', long = "version")]
+    pub version: bool,
 }
 
 #[derive(Clone, ValueEnum)]

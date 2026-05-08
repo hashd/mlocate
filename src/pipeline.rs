@@ -6,7 +6,7 @@ pub struct FileEntry {
     pub full_path: String,
     pub size: u64,
     pub mtime: i64,
-    pub mode: i32,
+    pub mode: u32,
     pub mime_type: String,
 }
 
@@ -45,7 +45,7 @@ fn extract_metadata(path: &std::path::Path) -> Option<FileEntry> {
     use std::os::unix::fs::MetadataExt;
     let size = meta.len();
     let mtime = meta.mtime();
-    let mode = meta.mode() as i32;
+    let mode = meta.mode();
 
     let mime_type = detect_mime(path);
 
