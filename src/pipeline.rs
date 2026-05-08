@@ -126,3 +126,105 @@ fn guess_from_ext(path: &std::path::Path) -> String {
         _ => "application/octet-stream".to_string(),
     }
 }
+
+pub fn run_batcher(
+    rx: Receiver<FileEntry>,
+    db_path: &str,
+    incremental: bool,
+    force: bool,
+    stats: Arc<WalkStats>,
+) -> Result<(), crate::error::MlocateError> {
+    use crate::db;
+
+    let mut conn = if force || !std::path::Path::new(db_path).exists() {
+        db::create_temp(db_path)?
+    } else {
+        db::open_or_create(db_path)?
+    };
+
+    let batch_size = 1000usize;
+    let mut batch: Vec<FileEntry> = Vec::with_capacity(batch_size);
+    let mut dirs_inserted: std::collections::HashSet<String> = std::collections::HashSet::new();
+
+    while let Ok(entry) = rx.recv() {
+        batch.push(entry);
+
+        if batch.len() >= batch_size {
+            flush_batch(&mut conn, &mut batch, &mut dirs_inserted, incremental, &stats)?;
+        }
+    }
+
+    if !batch.is_empty() {
+        flush_batch(&mut conn, &mut batch, &mut dirs_inserted, incremental, &stats)?;
+    }
+
+    db::close_and_checkpoint(conn)?;
+    Ok(())
+}
+
+fn flush_batch(
+    conn: &mut duckdb::Connection,
+    batch: &mut Vec<FileEntry>,
+    dirs_inserted: &mut std::collections::HashSet<String>,
+    incremental: bool,
+    stats: &Arc<WalkStats>,
+) -> Result<(), crate::error::MlocateError> {
+    use crate::db::trigram::escape_like;
+
+    let count = batch.len();
+
+    let tx = conn.transaction().map_err(|e| {
+        crate::error::MlocateError::DatabaseQueryFailed {
+            details: e.to_string(),
+        }
+    })?;
+
+    for entry in batch.drain(..) {
+        if incremental && dirs_inserted.contains(&entry.dir_path) {
+            let escaped = escape_like(&entry.dir_path);
+            tx.execute(
+                &format!(
+                    "DELETE FROM trigrams WHERE file_id IN (SELECT id FROM files WHERE full_path LIKE ? ESCAPE '\\')"
+                ),
+                duckdb::params![format!("{}/%", escaped)],
+            )
+            .ok();
+            tx.execute(
+                &format!(
+                    "DELETE FROM files WHERE full_path LIKE ? ESCAPE '\\'"
+                ),
+                duckdb::params![format!("{}/%", escaped)],
+            )
+            .ok();
+        }
+
+        tx.execute(
+            "INSERT OR REPLACE INTO files (full_path, size, mtime, mode, mime_type) VALUES (?, ?, ?, ?, ?)",
+            duckdb::params![
+                entry.full_path,
+                entry.size,
+                entry.mtime,
+                entry.mode,
+                entry.mime_type,
+            ],
+        )
+        .map_err(|e| crate::error::MlocateError::DatabaseQueryFailed {
+            details: e.to_string(),
+        })?;
+
+        dirs_inserted.insert(entry.dir_path.clone());
+    }
+
+    tx.commit().map_err(|e| crate::error::MlocateError::DatabaseQueryFailed {
+        details: e.to_string(),
+    })?;
+
+    conn.query_row("CHECKPOINT", [], |_| Ok(()))
+        .map_err(|e| crate::error::MlocateError::DatabaseQueryFailed {
+            details: e.to_string(),
+        })?;
+
+    stats.files_added.store(count, std::sync::atomic::Ordering::Relaxed);
+
+    Ok(())
+}
