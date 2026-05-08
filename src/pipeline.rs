@@ -1,4 +1,5 @@
 use crossbeam_channel::{bounded, Receiver, Sender};
+use std::path::PathBuf;
 
 #[derive(Debug, Clone)]
 pub struct FileEntry {
@@ -22,9 +23,9 @@ pub fn channel_sizes(extractor_threads: usize, batch_size: usize) -> (usize, usi
     (crawl_to_extract, extract_to_batch)
 }
 
-pub fn create_channels(extractor_threads: usize, batch_size: usize) -> (Sender<String>, Receiver<String>, Sender<FileEntry>, Receiver<FileEntry>) {
+pub fn create_channels(extractor_threads: usize, batch_size: usize) -> (Sender<PathBuf>, Receiver<PathBuf>, Sender<FileEntry>, Receiver<FileEntry>) {
     let (crawl_size, extract_size) = channel_sizes(extractor_threads, batch_size);
-    let (crawl_tx, crawl_rx) = bounded::<String>(crawl_size);
+    let (crawl_tx, crawl_rx) = bounded::<PathBuf>(crawl_size);
     let (extract_tx, extract_rx) = bounded::<FileEntry>(extract_size);
     (crawl_tx, crawl_rx, extract_tx, extract_rx)
 }
