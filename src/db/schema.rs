@@ -19,6 +19,10 @@ pub const CREATE_FILES: &str = "
     );
 ";
 
+pub const CREATE_SEQUENCES: &str = "
+    CREATE SEQUENCE IF NOT EXISTS files_id_seq;
+";
+
 pub const CREATE_TRIGRAMS: &str = "
     CREATE TABLE IF NOT EXISTS trigrams (
         trigram     CHAR(3),

@@ -61,7 +61,7 @@ pub fn build_trigram_query(
         };
 
         return Some(format!(
-            "SELECT f.* FROM files f JOIN (SELECT file_id FROM trigrams WHERE trigram = ?) t \
+            "SELECT f.id FROM files f JOIN (SELECT file_id FROM trigrams WHERE trigram = ?) t \
              ON f.id = t.file_id WHERE {}",
             condition
         ));
@@ -73,33 +73,20 @@ pub fn build_trigram_query(
         .collect();
     let intersect_sql = intersect_clauses.join(" INTERSECT ");
 
-    let like_pattern = if basename {
-        if ignore_case {
-            format!("%/{}", pattern.to_ascii_lowercase())
-        } else {
-            format!("%/{}", pattern)
-        }
-    } else if ignore_case {
-        pattern.to_ascii_lowercase()
-    } else {
-        pattern.to_string()
-    };
-    let like_pattern_escaped = escape_like(&like_pattern);
-
     let final_condition = if basename {
         if ignore_case {
-            format!("LOWER(full_path) LIKE LOWER('{}') ESCAPE '\\'", like_pattern_escaped)
+            format!("LOWER(full_path) LIKE LOWER(?) ESCAPE '\\'")
         } else {
-            format!("full_path LIKE '{}' ESCAPE '\\'", like_pattern_escaped)
+            format!("full_path LIKE ? ESCAPE '\\'")
         }
     } else if ignore_case {
-        format!("LOWER(full_path) LIKE LOWER('{}') ESCAPE '\\'", like_pattern_escaped)
+        format!("LOWER(full_path) LIKE LOWER(?) ESCAPE '\\'")
     } else {
-        format!("full_path LIKE '{}' ESCAPE '\\'", like_pattern_escaped)
+        format!("full_path LIKE ? ESCAPE '\\'")
     };
 
     Some(format!(
-        "SELECT f.* FROM files f WHERE f.id IN ({}) AND {}",
+        "SELECT f.id FROM files f WHERE f.id IN ({}) AND {}",
         intersect_sql, final_condition
     ))
 }

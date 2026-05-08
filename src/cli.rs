@@ -4,7 +4,7 @@ use clap::{Args, Parser, ValueEnum};
 #[command(name = "mlocate", about = "Modern locate alternative", long_about = None, disable_help_flag = true)]
 pub struct SearchCli {
     /// Literal substring match on full path (default). Multiple patterns combined with OR.
-    #[arg(required_unless_present_any = ["schema", "help"])]
+    #[arg(required_unless_present_any = ["schema", "help", "version"])]
     pub patterns: Vec<String>,
 
     /// Case-insensitive matching (ASCII only).

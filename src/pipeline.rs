@@ -199,7 +199,7 @@ fn flush_batch(
         }
 
         tx.execute(
-            "INSERT OR REPLACE INTO files (full_path, size, mtime, mode, mime_type) VALUES (?, ?, ?, ?, ?)",
+            "INSERT INTO files (id, full_path, size, mtime, mode, mime_type) VALUES (nextval('files_id_seq'), ?, ?, ?, ?, ?) ON CONFLICT(full_path) DO UPDATE SET size=EXCLUDED.size, mtime=EXCLUDED.mtime, mode=EXCLUDED.mode, mime_type=EXCLUDED.mime_type",
             duckdb::params![
                 entry.full_path,
                 entry.size,
@@ -219,7 +219,7 @@ fn flush_batch(
         details: e.to_string(),
     })?;
 
-    conn.query_row("CHECKPOINT", [], |_| Ok(()))
+    conn.execute("CHECKPOINT", [])
         .map_err(|e| crate::error::MlocateError::DatabaseQueryFailed {
             details: e.to_string(),
         })?;

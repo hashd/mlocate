@@ -37,6 +37,7 @@ pub fn open_or_create(path: &str) -> Result<Connection, MlocateError> {
         conn.execute_batch(schema::CREATE_TRIGRAMS)?;
         conn.execute_batch(schema::CREATE_SCHEMA_VERSION)?;
         conn.execute_batch(schema::SET_USER_VERSION)?;
+        conn.execute_batch(schema::CREATE_SEQUENCES)?;
     }
 
     Ok(conn)
@@ -49,10 +50,16 @@ pub fn create_temp(path: &str) -> Result<Connection, MlocateError> {
     conn.execute_batch(schema::CREATE_TRIGRAMS)?;
     conn.execute_batch(schema::CREATE_SCHEMA_VERSION)?;
     conn.execute_batch(schema::SET_USER_VERSION)?;
+    conn.execute_batch(schema::CREATE_SEQUENCES)?;
     Ok(conn)
 }
 
 pub fn close_and_checkpoint(conn: Connection) -> Result<(), MlocateError> {
+    conn.execute_batch("CHECKPOINT;").map_err(|e| {
+        MlocateError::DatabaseQueryFailed {
+            details: e.to_string(),
+        }
+    })?;
     drop(conn);
     Ok(())
 }
@@ -115,12 +122,6 @@ pub fn cleanup_stale_tmp(db_dir: &str) -> Result<(), MlocateError> {
 }
 
 pub fn atomic_swap(tmp_path: &str, final_path: &str) -> Result<(), MlocateError> {
-    let db_dir = std::path::Path::new(tmp_path)
-        .parent()
-        .and_then(|p| p.to_str())
-        .unwrap_or(".");
-
-    cleanup_stale_tmp(db_dir)?;
     retry_checkpoint_wal(tmp_path, 3)?;
     rename_atomic(tmp_path, final_path)?;
     Ok(())

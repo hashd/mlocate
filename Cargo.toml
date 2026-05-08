@@ -37,6 +37,18 @@ mach2 = "0.4"
 [target.'cfg(target_os = "linux")'.dependencies]
 libc = "0.2"
 
+[[test]]
+name = "smoke"
+path = "tests/integration/smoke.rs"
+
+[[test]]
+name = "compat"
+path = "tests/integration/compat.rs"
+
+[[test]]
+name = "gnucmd"
+path = "tests/integration/gnucmd.rs"
+
 [dev-dependencies]
 tempfile = "3.14"
 assert_cmd = "2.0"
