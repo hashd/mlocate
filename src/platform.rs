@@ -10,10 +10,7 @@ pub mod path {
     }
 
     pub fn default_prunepaths() -> Vec<String> {
-        vec![
-            "/Volumes".to_string(),
-            "/dev".to_string(),
-        ]
+        vec!["/Volumes".to_string(), "/dev".to_string()]
     }
 }
 
@@ -90,7 +87,10 @@ pub fn set_niceness() {
     #[cfg(target_os = "macos")]
     {
         use mach2::mach_port::mach_port_deallocate;
-        use mach2::thread_policy::{thread_background_policy, thread_policy_set, THREAD_BACKGROUND_POLICY, THREAD_BACKGROUND_POLICY_COUNT};
+        use mach2::thread_policy::{
+            thread_background_policy, thread_policy_set, THREAD_BACKGROUND_POLICY,
+            THREAD_BACKGROUND_POLICY_COUNT,
+        };
         use mach2::traps::mach_task_self;
 
         let mut policy = thread_background_policy { priority: 0 };
@@ -111,7 +111,10 @@ pub fn set_niceness() {
         unsafe {
             let ret = libc::setpriority(libc::PRIO_PROCESS, 0, 10);
             if ret != 0 {
-                eprintln!("Warning: Failed to set process priority (errno: {})", std::io::Error::last_os_error().raw_os_error().unwrap_or(-1));
+                eprintln!(
+                    "Warning: Failed to set process priority (errno: {})",
+                    std::io::Error::last_os_error().raw_os_error().unwrap_or(-1)
+                );
             }
         }
     }

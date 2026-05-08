@@ -38,7 +38,11 @@ pub fn format_relative_time(mtime: i64) -> String {
 pub fn format_size_color(bytes: u64) -> colored::Color {
     use colored::Color;
     if bytes < 1024 {
-        Color::TrueColor { r: 128, g: 128, b: 128 }
+        Color::TrueColor {
+            r: 128,
+            g: 128,
+            b: 128,
+        }
     } else if bytes < 1024 * 1024 {
         Color::Green
     } else if bytes < 100 * 1024 * 1024 {
@@ -63,8 +67,16 @@ pub fn format_time_color(mtime: i64) -> colored::Color {
     } else if diff < 604800 {
         Color::Yellow
     } else if diff < 2592000 {
-        Color::TrueColor { r: 255, g: 255, b: 255 }
+        Color::TrueColor {
+            r: 255,
+            g: 255,
+            b: 255,
+        }
     } else {
-        Color::TrueColor { r: 128, g: 128, b: 128 }
+        Color::TrueColor {
+            r: 128,
+            g: 128,
+            b: 128,
+        }
     }
 }

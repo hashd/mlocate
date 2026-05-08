@@ -1,9 +1,9 @@
-pub mod header;
-pub mod format;
-pub mod writer;
-pub mod reader;
+pub mod build;
 pub mod dir;
+pub mod format;
+pub mod header;
+pub mod reader;
+pub mod search;
 pub mod stats;
 pub mod trigram;
-pub mod build;
-pub mod search;
+pub mod writer;

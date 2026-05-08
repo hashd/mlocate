@@ -1,8 +1,8 @@
 use clap::CommandFactory;
 use clap::Parser;
 use mlocate::cli::{SearchCli, Shell};
-use mlocate::index::search::{search, SearchOptions, SearchFilters};
 use mlocate::index::format::IndexReader;
+use mlocate::index::search::{search, SearchFilters, SearchOptions};
 use mlocate::output;
 
 fn main() -> anyhow::Result<()> {
@@ -51,7 +51,10 @@ fn main() -> anyhow::Result<()> {
     let db_path = mlocate::platform::db_path(cli.database.as_deref());
 
     if !std::path::Path::new(&db_path).exists() {
-        eprintln!("mlocate: no index found at {}. Run 'mupdatedb' to create one.", db_path);
+        eprintln!(
+            "mlocate: no index found at {}. Run 'mupdatedb' to create one.",
+            db_path
+        );
         std::process::exit(2);
     }
 
@@ -103,7 +106,11 @@ fn main() -> anyhow::Result<()> {
         };
         let trigram_stats = reader.trigram_stats();
         let json = output::json::render_json_schema(
-            &db_path, db_size, file_count, &last_idx, &trigram_stats,
+            &db_path,
+            db_size,
+            file_count,
+            &last_idx,
+            &trigram_stats,
         );
         println!("{}", json);
         return Ok(());
@@ -118,9 +125,21 @@ fn main() -> anyhow::Result<()> {
         std::process::exit(2);
     }
 
-    let size_filter = cli.size.as_deref().map(mlocate::filter::parse_size).transpose()?;
-    let modified_filter = cli.modified.as_deref().map(mlocate::filter::parse_modified).transpose()?;
-    let mime_filter = cli.mime_type.as_deref().map(mlocate::filter::parse_mime_type).transpose()?;
+    let size_filter = cli
+        .size
+        .as_deref()
+        .map(mlocate::filter::parse_size)
+        .transpose()?;
+    let modified_filter = cli
+        .modified
+        .as_deref()
+        .map(mlocate::filter::parse_modified)
+        .transpose()?;
+    let mime_filter = cli
+        .mime_type
+        .as_deref()
+        .map(mlocate::filter::parse_mime_type)
+        .transpose()?;
 
     let options = SearchOptions {
         ignore_case: cli.ignore_case,
@@ -171,9 +190,7 @@ fn main() -> anyhow::Result<()> {
             colored::control::set_override(false);
             false
         }
-        mlocate::cli::ColorMode::Auto => {
-            is_terminal::is_terminal(std::io::stdout())
-        }
+        mlocate::cli::ColorMode::Auto => is_terminal::is_terminal(std::io::stdout()),
     };
 
     if cli.json {
@@ -193,16 +210,26 @@ fn main() -> anyhow::Result<()> {
                         mode: entry.mode,
                         mime_type: entry.mime_type,
                     };
-                    if !first { write!(handle, ",").unwrap(); }
-                    write!(handle, "\n {}", serde_json::to_string(&je).unwrap_or_default()).unwrap();
+                    if !first {
+                        write!(handle, ",").unwrap();
+                    }
+                    write!(
+                        handle,
+                        "\n {}",
+                        serde_json::to_string(&je).unwrap_or_default()
+                    )
+                    .unwrap();
                     first = false;
                     has_results = true;
                 }
                 Err(e) => eprintln!("mlocate: {}", e),
             }
         }
-        if has_results { writeln!(handle, "\n]").unwrap(); }
-        else { writeln!(handle, "]").unwrap(); }
+        if has_results {
+            writeln!(handle, "\n]").unwrap();
+        } else {
+            writeln!(handle, "]").unwrap();
+        }
         std::process::exit(if has_results { 0 } else { 1 });
     } else if cli.null {
         use std::io::Write;
@@ -251,18 +278,6 @@ fn main() -> anyhow::Result<()> {
         let table_output = output::table::render_table(&table_results, cli.icons, use_color);
         output::pager::page_output(&table_output)?;
         std::process::exit(exit_code);
-    } else if cli.gnu {
-        let mut has_results = false;
-        for result in search_results {
-            match result {
-                Ok(entry) => {
-                    println!("{}", entry.full_path);
-                    has_results = true;
-                }
-                Err(e) => eprintln!("mlocate: {}", e),
-            }
-        }
-        std::process::exit(if has_results { 0 } else { 1 });
     } else {
         let mut has_results = false;
         for result in search_results {
@@ -281,7 +296,9 @@ fn main() -> anyhow::Result<()> {
 fn install_sigbus_handler() {
     unsafe {
         let _ = signal_hook::low_level::register(signal_hook::consts::SIGBUS, || {
-            eprintln!("mlocate: the index file was modified during search. Run 'mupdatedb' and retry.");
+            eprintln!(
+                "mlocate: the index file was modified during search. Run 'mupdatedb' and retry."
+            );
             std::process::exit(2);
         });
     }

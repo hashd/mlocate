@@ -1,8 +1,8 @@
 use dashmap::DashSet;
 use ignore::WalkBuilder;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Arc;
 use std::time::Instant;
 
 #[derive(Default)]
@@ -28,7 +28,10 @@ pub fn walk_paths(
         let root = Path::new(root_path);
         if !root.exists() {
             if !quiet {
-                eprintln!("Warning: Root path '{}' does not exist, skipping.", root_path);
+                eprintln!(
+                    "Warning: Root path '{}' does not exist, skipping.",
+                    root_path
+                );
             }
             continue;
         }
@@ -49,9 +52,14 @@ pub fn walk_paths(
             .git_ignore(true)
             .ignore(true)
             .follow_links(false)
-            .threads(std::thread::available_parallelism().map(|n| n.get()).unwrap_or(4));
+            .threads(
+                std::thread::available_parallelism()
+                    .map(|n| n.get())
+                    .unwrap_or(4),
+            );
 
-        let prunes: Vec<PathBuf> = prunepaths.iter()
+        let prunes: Vec<PathBuf> = prunepaths
+            .iter()
             .filter_map(|p| std::fs::canonicalize(p).ok())
             .collect();
         let seen = seen_dirs.clone();

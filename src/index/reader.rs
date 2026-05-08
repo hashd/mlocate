@@ -1,9 +1,9 @@
-use roaring::RoaringBitmap;
 use memmap2::Mmap;
+use roaring::RoaringBitmap;
 
-use super::header::{Header, FEATURE_EXT_INDEX, FEATURE_BIGRAM_INDEX};
 use super::dir::DirTableEntry;
-use super::format::{DiskFileEntry, IndexConfig, TrigramEntry, BigramEntry, ExtBitmapEntry};
+use super::format::{BigramEntry, DiskFileEntry, ExtBitmapEntry, IndexConfig, TrigramEntry};
+use super::header::{Header, FEATURE_BIGRAM_INDEX, FEATURE_EXT_INDEX};
 use super::stats::TrigramStats;
 
 pub struct IndexReader<'a> {
@@ -17,8 +17,13 @@ impl<'a> IndexReader<'a> {
         if data.len() < 4 {
             return Err("index too short (missing CRC footer)".into());
         }
-        let stored_crc = u32::from_le_bytes([data[data.len()-4], data[data.len()-3], data[data.len()-2], data[data.len()-1]]);
-        let computed_crc = crc32fast::hash(&data[..data.len()-4]);
+        let stored_crc = u32::from_le_bytes([
+            data[data.len() - 4],
+            data[data.len() - 3],
+            data[data.len() - 2],
+            data[data.len() - 1],
+        ]);
+        let computed_crc = crc32fast::hash(&data[..data.len() - 4]);
         if stored_crc != computed_crc {
             return Err(format!(
                 "index checksum mismatch (stored: {:08x}, computed: {:08x}). The index may be corrupt or truncated.",
@@ -34,7 +39,8 @@ impl<'a> IndexReader<'a> {
             return Err("index too short (missing CRC footer)".into());
         }
         let crc_bytes = &data[data.len() - 4..];
-        let stored_crc = u32::from_le_bytes([crc_bytes[0], crc_bytes[1], crc_bytes[2], crc_bytes[3]]);
+        let stored_crc =
+            u32::from_le_bytes([crc_bytes[0], crc_bytes[1], crc_bytes[2], crc_bytes[3]]);
         let computed_crc = crc32fast::hash(&data[..data.len() - 4]);
         if stored_crc != computed_crc {
             return Err(format!(
@@ -60,16 +66,15 @@ impl<'a> IndexReader<'a> {
 
     pub fn file_entry(&self, doc_id: u32) -> Result<DiskFileEntry, String> {
         if doc_id as u64 >= self.header.num_files {
-            return Err(format!("doc_id {} out of range (max {})", doc_id, self.header.num_files));
+            return Err(format!(
+                "doc_id {} out of range (max {})",
+                doc_id, self.header.num_files
+            ));
         }
         let off_dir = self.header.file_offset_dir_offset as usize;
         let off_idx = off_dir + (doc_id as usize) * 8;
-        let entry_off = u64::from_le_bytes(
-            self.data[off_idx..off_idx + 8].try_into().unwrap()
-        );
-        let next_off = u64::from_le_bytes(
-            self.data[off_idx + 8..off_idx + 16].try_into().unwrap()
-        );
+        let entry_off = u64::from_le_bytes(self.data[off_idx..off_idx + 8].try_into().unwrap());
+        let next_off = u64::from_le_bytes(self.data[off_idx + 8..off_idx + 16].try_into().unwrap());
         let entry_len = (next_off - entry_off) as usize;
 
         let start = self.header.file_dir_offset as usize + entry_off as usize;
@@ -83,19 +88,23 @@ impl<'a> IndexReader<'a> {
 
     pub fn file_path_only(&self, doc_id: u32) -> Result<String, String> {
         if doc_id as u64 >= self.header.num_files {
-            return Err(format!("doc_id {} out of range (max {})", doc_id, self.header.num_files));
+            return Err(format!(
+                "doc_id {} out of range (max {})",
+                doc_id, self.header.num_files
+            ));
         }
         let off_dir = self.header.file_offset_dir_offset as usize;
         let off_idx = off_dir + (doc_id as usize) * 8;
-        let entry_off = u64::from_le_bytes(
-            self.data[off_idx..off_idx + 8].try_into().unwrap()
-        );
+        let entry_off = u64::from_le_bytes(self.data[off_idx..off_idx + 8].try_into().unwrap());
         let start = self.header.file_dir_offset as usize + entry_off as usize;
         if start + 4 > self.data.len() {
             return Err("file entry too short".into());
         }
         let path_len = u32::from_le_bytes([
-            self.data[start], self.data[start+1], self.data[start+2], self.data[start+3]
+            self.data[start],
+            self.data[start + 1],
+            self.data[start + 2],
+            self.data[start + 3],
         ]) as usize;
         let path_start = start + 4;
         if path_start + path_len > self.data.len() {
@@ -105,19 +114,31 @@ impl<'a> IndexReader<'a> {
     }
 
     fn parse_file_entry(data: &[u8]) -> Result<DiskFileEntry, String> {
-        if data.len() < 4 { return Err("file entry too short".into()); }
+        if data.len() < 4 {
+            return Err("file entry too short".into());
+        }
         let path_len = u32::from_le_bytes([data[0], data[1], data[2], data[3]]) as usize;
         let off = 4 + path_len;
-        if data.len() < off + 21 { return Err("file entry truncated".into()); }
+        if data.len() < off + 21 {
+            return Err("file entry truncated".into());
+        }
         let path = String::from_utf8_lossy(&data[4..off]).to_string();
-        let size = u64::from_le_bytes(data[off..off+8].try_into().unwrap());
-        let mtime = i64::from_le_bytes(data[off+8..off+16].try_into().unwrap());
-        let mode = u32::from_le_bytes(data[off+16..off+20].try_into().unwrap());
-        let mime_len = data[off+20] as usize;
+        let size = u64::from_le_bytes(data[off..off + 8].try_into().unwrap());
+        let mtime = i64::from_le_bytes(data[off + 8..off + 16].try_into().unwrap());
+        let mode = u32::from_le_bytes(data[off + 16..off + 20].try_into().unwrap());
+        let mime_len = data[off + 20] as usize;
         let mime_off = off + 21;
-        if data.len() < mime_off + mime_len { return Err("mime field truncated".into()); }
+        if data.len() < mime_off + mime_len {
+            return Err("mime field truncated".into());
+        }
         let mime_type = String::from_utf8_lossy(&data[mime_off..mime_off + mime_len]).to_string();
-        Ok(DiskFileEntry { full_path: path, size, mtime, mode, mime_type })
+        Ok(DiskFileEntry {
+            full_path: path,
+            size,
+            mtime,
+            mode,
+            mime_type,
+        })
     }
 
     pub fn trigram_bitmap(&self, trigram: [u8; 3]) -> Option<RoaringBitmap> {
@@ -165,8 +186,14 @@ impl<'a> IndexReader<'a> {
         )
     }
 
-    pub fn trigram_bitmaps_batch(&self, keys: &[[u8; 3]], results: &mut std::collections::HashMap<[u8; 3], RoaringBitmap>) {
-        if keys.is_empty() { return; }
+    pub fn trigram_bitmaps_batch(
+        &self,
+        keys: &[[u8; 3]],
+        results: &mut std::collections::HashMap<[u8; 3], RoaringBitmap>,
+    ) {
+        if keys.is_empty() {
+            return;
+        }
         let num_entries = self.header.num_trigrams as usize;
         let dir_start = self.header.trigram_dir_offset as usize;
         let entry_size = TrigramEntry::ENTRY_SIZE;
@@ -179,20 +206,28 @@ impl<'a> IndexReader<'a> {
         let mut ki = 0;
         for i in 0..num_entries {
             let entry_off = dir_start + i * entry_size;
-            if entry_off + entry_size > self.data.len() { break; }
+            if entry_off + entry_size > self.data.len() {
+                break;
+            }
             let entry_key: &[u8; 3] = &self.data[entry_off..entry_off + 3].try_into().unwrap();
 
             while ki < sorted_keys.len() && sorted_keys[ki].as_slice() < entry_key.as_slice() {
                 ki += 1;
             }
-            if ki >= sorted_keys.len() { break; }
-            if sorted_keys[ki].as_slice() > entry_key.as_slice() { continue; }
+            if ki >= sorted_keys.len() {
+                break;
+            }
+            if sorted_keys[ki].as_slice() > entry_key.as_slice() {
+                continue;
+            }
 
-            let bm_off = u64::from_le_bytes(
-                self.data[entry_off + 3..entry_off + 11].try_into().unwrap()
-            ) as usize;
+            let bm_off =
+                u64::from_le_bytes(self.data[entry_off + 3..entry_off + 11].try_into().unwrap())
+                    as usize;
             let bm_len = u32::from_le_bytes(
-                self.data[entry_off + 11..entry_off + 15].try_into().unwrap()
+                self.data[entry_off + 11..entry_off + 15]
+                    .try_into()
+                    .unwrap(),
             ) as usize;
             let bm_start = bm_base + bm_off;
             let bm_end = bm_start + bm_len;
@@ -211,8 +246,7 @@ impl<'a> IndexReader<'a> {
         if end > self.data.len() {
             return Err("config blob out of bounds".into());
         }
-        IndexConfig::from_compressed(&self.data[start..end])
-            .map_err(|e| e.to_string())
+        IndexConfig::from_compressed(&self.data[start..end]).map_err(|e| e.to_string())
     }
 
     pub fn trigram_stats(&self) -> TrigramStats {
@@ -258,7 +292,10 @@ impl<'a> IndexReader<'a> {
         stats
     }
 
-    pub fn get_files_in_dir(&self, dir_entry: &DirTableEntry) -> Result<Vec<DiskFileEntry>, String> {
+    pub fn get_files_in_dir(
+        &self,
+        dir_entry: &DirTableEntry,
+    ) -> Result<Vec<DiskFileEntry>, String> {
         let mut entries = Vec::with_capacity(dir_entry.num_files as usize);
         for i in 0..dir_entry.num_files {
             let doc_id = dir_entry.first_file_id + i;
@@ -300,10 +337,14 @@ fn binary_search_bitmap(
             std::cmp::Ordering::Greater => hi = mid,
             std::cmp::Ordering::Equal => {
                 let bm_off = u64::from_le_bytes(
-                    data[entry_off + key_len..entry_off + key_len + 8].try_into().ok()?
+                    data[entry_off + key_len..entry_off + key_len + 8]
+                        .try_into()
+                        .ok()?,
                 ) as usize;
                 let bm_len = u32::from_le_bytes(
-                    data[entry_off + key_len + 8..entry_off + key_len + 12].try_into().ok()?
+                    data[entry_off + key_len + 8..entry_off + key_len + 12]
+                        .try_into()
+                        .ok()?,
                 ) as usize;
                 let bm_start = bitmap_data_offset + bm_off;
                 let bm_end = bm_start + bm_len;

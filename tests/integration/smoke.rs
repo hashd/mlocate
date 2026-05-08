@@ -1,8 +1,7 @@
 use std::process::Command;
 
 fn mlocate_bin() -> String {
-    std::env::var("CARGO_BIN_EXE_mlocate")
-        .unwrap_or_else(|_| "target/debug/mlocate".to_string())
+    std::env::var("CARGO_BIN_EXE_mlocate").unwrap_or_else(|_| "target/debug/mlocate".to_string())
 }
 
 fn mupdatedb_bin() -> String {
@@ -20,7 +19,11 @@ fn index_test_dir(dir: &std::path::Path, db_path: &std::path::Path) {
         .arg("--quiet")
         .output()
         .expect("should run mupdatedb");
-    assert!(output.status.success(), "mupdatedb failed: {}", String::from_utf8_lossy(&output.stderr));
+    assert!(
+        output.status.success(),
+        "mupdatedb failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
     assert!(db_path.exists(), "Database was not created");
 }
 
@@ -65,9 +68,16 @@ fn test_mupdatedb_incremental_warns() {
         .arg("--quiet")
         .output()
         .expect("should run");
-    assert!(output.status.success(), "--incremental should warn and fall back to full rebuild");
+    assert!(
+        output.status.success(),
+        "--incremental should warn and fall back to full rebuild"
+    );
     let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(stderr.contains("not supported") || stderr.contains("Falling back") || stderr.contains("No existing index"));
+    assert!(
+        stderr.contains("not supported")
+            || stderr.contains("Falling back")
+            || stderr.contains("No existing index")
+    );
 }
 
 #[test]
@@ -115,9 +125,17 @@ fn test_end_to_end() {
         .arg("--plain")
         .output()
         .expect("should run");
-    assert!(output.status.success(), "search failed: {}", String::from_utf8_lossy(&output.stderr));
+    assert!(
+        output.status.success(),
+        "search failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
     let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("hello.rs"), "Search should find hello.rs, got: {}", stdout);
+    assert!(
+        stdout.contains("hello.rs"),
+        "Search should find hello.rs, got: {}",
+        stdout
+    );
 }
 
 #[test]
@@ -141,7 +159,10 @@ fn test_existing_filter() {
         .output()
         .expect("should run");
     let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("doomed.txt"), "should find doomed.txt while it exists");
+    assert!(
+        stdout.contains("doomed.txt"),
+        "should find doomed.txt while it exists"
+    );
     assert!(stdout.contains("keeper.txt"));
 
     std::fs::remove_file(&doomed_path).unwrap();
@@ -155,7 +176,10 @@ fn test_existing_filter() {
         .output()
         .expect("should run");
     let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(!stdout.contains("doomed.txt"), "deleted file should be excluded by --existing");
+    assert!(
+        !stdout.contains("doomed.txt"),
+        "deleted file should be excluded by --existing"
+    );
     assert!(stdout.contains("keeper.txt"));
 }
 
@@ -182,7 +206,12 @@ fn test_limit_with_filters() {
         .expect("should run");
     let stdout = String::from_utf8_lossy(&output.stdout);
     let lines: Vec<&str> = stdout.trim().lines().collect();
-    assert_eq!(lines.len(), 2, "limit should cap results at 2, got {:?}", lines);
+    assert_eq!(
+        lines.len(),
+        2,
+        "limit should cap results at 2, got {:?}",
+        lines
+    );
 }
 
 #[test]
@@ -201,7 +230,11 @@ fn test_empty_directory() {
         .arg("anything")
         .output()
         .expect("should run");
-    assert_eq!(output.status.code(), Some(1), "empty DB should exit code 1 (no matches)");
+    assert_eq!(
+        output.status.code(),
+        Some(1),
+        "empty DB should exit code 1 (no matches)"
+    );
 }
 
 #[test]
@@ -226,7 +259,10 @@ fn test_corrupted_index() {
         .arg("test")
         .output()
         .expect("should run");
-    assert!(!output.status.success(), "corrupted index should exit with error");
+    assert!(
+        !output.status.success(),
+        "corrupted index should exit with error"
+    );
 }
 
 #[test]
@@ -250,8 +286,14 @@ fn test_modified_filter() {
         .output()
         .expect("should run");
     let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("recent.txt"), "1d- should find recently-indexed files");
-    assert!(stdout.contains("old.txt"), "both files should be within 1 day");
+    assert!(
+        stdout.contains("recent.txt"),
+        "1d- should find recently-indexed files"
+    );
+    assert!(
+        stdout.contains("old.txt"),
+        "both files should be within 1 day"
+    );
 
     let output = Command::new(mlocate_bin())
         .arg("--database")
@@ -296,7 +338,10 @@ fn test_json_and_null_output() {
         .output()
         .expect("should run");
     let stdout = output.stdout;
-    assert!(stdout.ends_with(&[0u8]), "null output should end with NUL byte");
+    assert!(
+        stdout.ends_with(&[0u8]),
+        "null output should end with NUL byte"
+    );
 }
 
 #[test]
@@ -343,8 +388,16 @@ fn test_regex_search() {
         .output()
         .expect("should run");
     let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("hello.rs"), "regex .rs$ should match hello.rs, got: {}", stdout);
-    assert!(!stdout.contains("hello.md"), "regex .rs$ should NOT match hello.md, got: {}", stdout);
+    assert!(
+        stdout.contains("hello.rs"),
+        "regex .rs$ should match hello.rs, got: {}",
+        stdout
+    );
+    assert!(
+        !stdout.contains("hello.md"),
+        "regex .rs$ should NOT match hello.md, got: {}",
+        stdout
+    );
 }
 
 #[test]
@@ -368,7 +421,11 @@ fn test_regex_case_insensitive() {
         .output()
         .expect("should run");
     let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("README.md"), "-i -r readme should match README.md, got: {}", stdout);
+    assert!(
+        stdout.contains("README.md"),
+        "-i -r readme should match README.md, got: {}",
+        stdout
+    );
 }
 
 #[test]
@@ -392,8 +449,16 @@ fn test_size_filter() {
         .output()
         .expect("should run");
     let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("big.txt"), "5KB+ should match big.txt, got: {}", stdout);
-    assert!(!stdout.contains("small.txt"), "5KB+ should NOT match small.txt, got: {}", stdout);
+    assert!(
+        stdout.contains("big.txt"),
+        "5KB+ should match big.txt, got: {}",
+        stdout
+    );
+    assert!(
+        !stdout.contains("small.txt"),
+        "5KB+ should NOT match small.txt, got: {}",
+        stdout
+    );
 
     let output = Command::new(mlocate_bin())
         .arg("--database")
@@ -405,8 +470,16 @@ fn test_size_filter() {
         .output()
         .expect("should run");
     let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("small.txt"), "1KB- should match small.txt, got: {}", stdout);
-    assert!(!stdout.contains("big.txt"), "1KB- should NOT match big.txt, got: {}", stdout);
+    assert!(
+        stdout.contains("small.txt"),
+        "1KB- should match small.txt, got: {}",
+        stdout
+    );
+    assert!(
+        !stdout.contains("big.txt"),
+        "1KB- should NOT match big.txt, got: {}",
+        stdout
+    );
 }
 
 #[test]
@@ -431,8 +504,15 @@ fn test_type_filter() {
         .output()
         .expect("should run");
     let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("hello.rs"), "type text/x-rust should match hello.rs, got: {}", stdout);
-    assert!(!stdout.contains("readme.md"), "type text/x-rust should NOT match readme.md");
+    assert!(
+        stdout.contains("hello.rs"),
+        "type text/x-rust should match hello.rs, got: {}",
+        stdout
+    );
+    assert!(
+        !stdout.contains("readme.md"),
+        "type text/x-rust should NOT match readme.md"
+    );
 
     let output = Command::new(mlocate_bin())
         .arg("--database")
@@ -445,8 +525,14 @@ fn test_type_filter() {
         .expect("should run");
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("hello.rs"), "text/* should match hello.rs");
-    assert!(stdout.contains("readme.md"), "text/* should match readme.md");
-    assert!(stdout.contains("notes.txt"), "text/* should match notes.txt");
+    assert!(
+        stdout.contains("readme.md"),
+        "text/* should match readme.md"
+    );
+    assert!(
+        stdout.contains("notes.txt"),
+        "text/* should match notes.txt"
+    );
 }
 
 fn run_mlocate(db: &std::path::Path, args: &[&str]) -> String {
@@ -471,11 +557,7 @@ fn index_fixture(dir: &std::path::Path, db: &std::path::Path) {
         .arg(dir)
         .arg("--quiet");
     let output = cmd.output().unwrap();
-    assert!(
-        output.status.success(),
-        "mupdatedb failed: {:?}",
-        output
-    );
+    assert!(output.status.success(), "mupdatedb failed: {:?}", output);
 }
 
 #[test]
@@ -493,9 +575,19 @@ fn test_mime_filter_finds_image() {
     assert!(output.status.success(), "mupdatedb failed: {:?}", output);
 
     let mut search = Command::new(mlocate_bin());
-    search.arg("--database").arg(&db).arg("--type").arg("image/*").arg("--json").arg("");
+    search
+        .arg("--database")
+        .arg(&db)
+        .arg("--type")
+        .arg("image/*")
+        .arg("--json")
+        .arg("");
     let result = search.output().unwrap();
-    assert!(result.status.success(), "mlocate search failed: {:?}", result);
+    assert!(
+        result.status.success(),
+        "mlocate search failed: {:?}",
+        result
+    );
     let stdout = String::from_utf8_lossy(&result.stdout);
     assert!(
         stdout.contains("image/png") || stdout.contains("image/"),
@@ -521,10 +613,18 @@ fn test_prunepaths_with_gitignore() {
     assert!(output.status.success(), "mupdatedb failed: {:?}", output);
 
     let mut search = Command::new(mlocate_bin());
-    search.arg("--database").arg(&db).arg("-i").arg("Cargo.toml").arg("--json");
+    search
+        .arg("--database")
+        .arg(&db)
+        .arg("-i")
+        .arg("Cargo.toml")
+        .arg("--json");
     let result = search.output().unwrap();
     let stdout = String::from_utf8_lossy(&result.stdout);
-    assert!(stdout.contains("Cargo.toml"), "Cargo.toml should be indexed");
+    assert!(
+        stdout.contains("Cargo.toml"),
+        "Cargo.toml should be indexed"
+    );
     assert!(!stdout.contains("src/main.rs"), "src/ should be pruned");
 }
 
@@ -543,7 +643,11 @@ fn test_symlink_handling() {
     assert!(output.status.success(), "mupdatedb failed: {:?}", output);
 
     let mut search = Command::new(mlocate_bin());
-    search.arg("--database").arg(&db).arg("link-to-file").arg("--json");
+    search
+        .arg("--database")
+        .arg(&db)
+        .arg("link-to-file")
+        .arg("--json");
     let result = search.output().unwrap();
     let stdout = String::from_utf8_lossy(&result.stdout);
     assert!(
@@ -570,7 +674,10 @@ fn test_mupdatedb_incremental_updates_file() {
     assert!(cmd.status().unwrap().success());
 
     let result = run_mlocate(&db, &["original.txt"]);
-    assert!(result.contains("original.txt"), "Original file should be found");
+    assert!(
+        result.contains("original.txt"),
+        "Original file should be found"
+    );
 
     std::fs::write(tmp.path().join("newfile.txt"), "world").unwrap();
 
@@ -606,7 +713,11 @@ fn test_basename_flag() {
     index_fixture(tmp.path(), &db);
 
     let result = run_mlocate(&db, &["--basename", "hello"]);
-    assert!(result.contains("hello.txt"), "Basename should match: {}", result);
+    assert!(
+        result.contains("hello.txt"),
+        "Basename should match: {}",
+        result
+    );
     assert!(!result.contains("goodbye.txt"), "Should not match goodbye");
 }
 
@@ -635,7 +746,10 @@ fn test_null_output() {
     index_fixture(tmp.path(), &db);
 
     let output = run_mlocate_raw(&db, &["--null", "test"]);
-    assert!(output.ends_with(b"\0"), "NUL output should end with null byte");
+    assert!(
+        output.ends_with(b"\0"),
+        "NUL output should end with null byte"
+    );
 }
 
 #[test]

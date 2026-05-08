@@ -1,8 +1,7 @@
 use std::process::Command;
 
 fn mlocate_bin() -> String {
-    std::env::var("CARGO_BIN_EXE_mlocate")
-        .unwrap_or_else(|_| "target/debug/mlocate".to_string())
+    std::env::var("CARGO_BIN_EXE_mlocate").unwrap_or_else(|_| "target/debug/mlocate".to_string())
 }
 
 fn mupdatedb_bin() -> String {

@@ -15,7 +15,10 @@ pub fn warn_gnu_stubs(cli: &SearchCli) {
     for (flag, present) in &stubs {
         if *present {
             if cli.gnu {
-                eprintln!("Warning: {} is not supported in mlocate and will be ignored.", flag);
+                eprintln!(
+                    "Warning: {} is not supported in mlocate and will be ignored.",
+                    flag
+                );
             } else {
                 eprintln!("Error: {} is not supported in mlocate. Use --gnu for GNU locate compatibility mode.", flag);
                 std::process::exit(2);

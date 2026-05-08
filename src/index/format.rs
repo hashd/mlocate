@@ -23,7 +23,11 @@ impl TrigramEntry {
         let trigram = [buf[0], buf[1], buf[2]];
         let bitmap_offset = u64::from_le_bytes(buf[3..11].try_into().unwrap());
         let bitmap_len = u32::from_le_bytes(buf[11..15].try_into().unwrap());
-        TrigramEntry { trigram, bitmap_offset, bitmap_len }
+        TrigramEntry {
+            trigram,
+            bitmap_offset,
+            bitmap_len,
+        }
     }
 }
 
@@ -41,7 +45,11 @@ impl BigramEntry {
         let bigram = [buf[0], buf[1]];
         let bitmap_offset = u64::from_le_bytes(buf[2..10].try_into().unwrap());
         let bitmap_len = u32::from_le_bytes(buf[10..14].try_into().unwrap());
-        BigramEntry { bigram, bitmap_offset, bitmap_len }
+        BigramEntry {
+            bigram,
+            bitmap_offset,
+            bitmap_len,
+        }
     }
 }
 
@@ -59,7 +67,11 @@ impl ExtBitmapEntry {
         let ext = buf[0..8].try_into().unwrap();
         let bitmap_offset = u64::from_le_bytes(buf[8..16].try_into().unwrap());
         let bitmap_len = u32::from_le_bytes(buf[16..20].try_into().unwrap());
-        ExtBitmapEntry { ext, bitmap_offset, bitmap_len }
+        ExtBitmapEntry {
+            ext,
+            bitmap_offset,
+            bitmap_len,
+        }
     }
 }
 
@@ -75,22 +87,23 @@ pub struct IndexConfig {
 
 impl IndexConfig {
     pub fn to_compressed_json(&self) -> io::Result<Vec<u8>> {
-        let json = serde_json::to_vec(self)
-            .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
-        zstd::encode_all(&json[..], 3)
-            .map_err(io::Error::other)
+        let json =
+            serde_json::to_vec(self).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
+        zstd::encode_all(&json[..], 3).map_err(io::Error::other)
     }
 
     pub fn from_compressed(data: &[u8]) -> io::Result<Self> {
-        let json = zstd::decode_all(data)
-            .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
-        serde_json::from_slice(&json)
-            .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))
+        let json =
+            zstd::decode_all(data).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
+        serde_json::from_slice(&json).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))
     }
 }
 
-pub use super::header::{MAGIC, MAGIC_FULL, FORMAT_VERSION, HEADER_SIZE_V1, HEADER_SIZE_V2, FEATURE_DIR_TABLE, FEATURE_EXT_INDEX, FEATURE_BIGRAM_INDEX, Header};
-pub use super::writer::IndexWriter;
-pub use super::reader::IndexReader;
 pub use super::dir::DirTableEntry;
+pub use super::header::{
+    Header, FEATURE_BIGRAM_INDEX, FEATURE_DIR_TABLE, FEATURE_EXT_INDEX, FORMAT_VERSION,
+    HEADER_SIZE_V1, HEADER_SIZE_V2, MAGIC, MAGIC_FULL,
+};
+pub use super::reader::IndexReader;
 pub use super::stats::TrigramStats;
+pub use super::writer::IndexWriter;

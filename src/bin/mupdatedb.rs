@@ -1,16 +1,19 @@
 use clap::Parser;
 use mlocate::cli::UpdateCli;
-use mlocate::pipeline;
-use mlocate::index::format::IndexConfig;
 use mlocate::index::build::{build_index, build_index_incremental};
-use mlocate::index::format::{IndexReader, DirTableEntry};
-use std::sync::Arc;
+use mlocate::index::format::IndexConfig;
+use mlocate::index::format::{DirTableEntry, IndexReader};
+use mlocate::pipeline;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use std::time::Instant;
 
 static INTERRUPTED: AtomicBool = AtomicBool::new(false);
 
-fn start_progress_ticker(stats: Arc<mlocate::crawl::WalkStats>, quiet: bool) -> (Arc<AtomicBool>, std::thread::JoinHandle<()>) {
+fn start_progress_ticker(
+    stats: Arc<mlocate::crawl::WalkStats>,
+    quiet: bool,
+) -> (Arc<AtomicBool>, std::thread::JoinHandle<()>) {
     let running = Arc::new(AtomicBool::new(true));
     let r = running.clone();
     let handle = std::thread::spawn(move || {
@@ -24,7 +27,11 @@ fn start_progress_ticker(stats: Arc<mlocate::crawl::WalkStats>, quiet: bool) -> 
             let added = stats.files_added.load(Ordering::Relaxed);
             let skipped = stats.dirs_skipped.load(Ordering::Relaxed);
             let elapsed = start.elapsed().as_secs_f64();
-            let rate = if elapsed > 0.0 { scanned as f64 / elapsed } else { 0.0 };
+            let rate = if elapsed > 0.0 {
+                scanned as f64 / elapsed
+            } else {
+                0.0
+            };
             if is_terminal::is_terminal(std::io::stderr()) {
                 eprint!(
                     "\r\x1b[KScanned: {} | Added: {} | Skipped dirs: {} | {:.0} files/s",
@@ -52,7 +59,10 @@ fn stop_progress_ticker(running: Arc<AtomicBool>, handle: std::thread::JoinHandl
 fn acquire_lock(db_path: &str) -> anyhow::Result<()> {
     let lock_path = format!("{}.lock", db_path);
     if std::path::Path::new(&lock_path).exists() {
-        anyhow::bail!("Index is locked at {}. If no other mupdatedb is running, delete this file.", lock_path);
+        anyhow::bail!(
+            "Index is locked at {}. If no other mupdatedb is running, delete this file.",
+            lock_path
+        );
     }
     std::fs::write(&lock_path, std::process::id().to_string())?;
     Ok(())
@@ -85,7 +95,8 @@ fn main() -> anyhow::Result<()> {
 
     ctrlc::set_handler(|| {
         INTERRUPTED.store(true, Ordering::SeqCst);
-    }).expect("Failed to set SIGINT handler");
+    })
+    .expect("Failed to set SIGINT handler");
 
     let localpaths = if cli.args.localpaths.is_empty() {
         mlocate::platform::path::default_localpaths()
@@ -108,14 +119,17 @@ fn main() -> anyhow::Result<()> {
 
     acquire_lock(&final_db)?;
 
-    let parallel = cli.args.parallel.unwrap_or_else(mlocate::platform::default_parallel);
+    let parallel = cli
+        .args
+        .parallel
+        .unwrap_or_else(mlocate::platform::default_parallel);
 
-    let (crawl_tx, crawl_rx, extract_tx, extract_rx) =
-        pipeline::create_channels(parallel, 1000);
+    let (crawl_tx, crawl_rx, extract_tx, extract_rx) = pipeline::create_channels(parallel, 1000);
 
     let crawl_stats = Arc::new(mlocate::crawl::WalkStats::default());
 
-    let (ticker_running, ticker_handle) = start_progress_ticker(crawl_stats.clone(), cli.args.quiet);
+    let (ticker_running, ticker_handle) =
+        start_progress_ticker(crawl_stats.clone(), cli.args.quiet);
 
     let mut extractor_handles = Vec::new();
     for _ in 0..parallel {
@@ -175,20 +189,10 @@ fn main() -> anyhow::Result<()> {
     let use_incremental = cli.args.incremental && !cli.args.force;
 
     let build_result = if use_incremental {
-        build_incremental(
-            extract_rx,
-            &final_db,
-            &final_db_path,
-            config,
-        )
+        build_incremental(extract_rx, &final_db, &final_db_path, config)
     } else {
         let build_stats = Arc::new(mlocate::crawl::WalkStats::default());
-        build_index(
-            extract_rx,
-            &final_db_path,
-            config,
-            build_stats.clone(),
-        ).map_err(Into::into)
+        build_index(extract_rx, &final_db_path, config, build_stats.clone()).map_err(Into::into)
     };
 
     crawl_handle.join().ok();
@@ -208,21 +212,17 @@ fn main() -> anyhow::Result<()> {
     release_lock(&final_db);
 
     if !cli.args.quiet {
-        let db_size = std::fs::metadata(&final_db)
-            .map(|m| m.len())
-            .unwrap_or(0);
+        let db_size = std::fs::metadata(&final_db).map(|m| m.len()).unwrap_or(0);
 
         let file_count = match std::fs::File::open(&final_db) {
             Ok(file) => {
                 // SAFETY: The mmap is backed by a file that may be truncated externally.
                 // The old inode persists as long as the file handle is open.
                 match unsafe { memmap2::Mmap::map(&file) } {
-                    Ok(mmap) => {
-                        match IndexReader::new(&mmap) {
-                            Ok(reader) => reader.num_files(),
-                            Err(_) => 0,
-                        }
-                    }
+                    Ok(mmap) => match IndexReader::new(&mmap) {
+                        Ok(reader) => reader.num_files(),
+                        Err(_) => 0,
+                    },
                     Err(_) => 0,
                 }
             }
@@ -261,8 +261,8 @@ fn build_incremental(
     // SAFETY: The mmap is backed by a file that may be truncated externally.
     // The old inode persists as long as the file handle is open.
     let mmap = unsafe { memmap2::Mmap::map(&file)? };
-    let reader = IndexReader::new(&mmap)
-        .map_err(|e| anyhow::anyhow!("Failed to read old index: {}", e))?;
+    let reader =
+        IndexReader::new(&mmap).map_err(|e| anyhow::anyhow!("Failed to read old index: {}", e))?;
 
     if !reader.has_feature(mlocate::index::format::FEATURE_DIR_TABLE) {
         eprintln!("Warning: Existing index lacks directory table for incremental update. Performing full rebuild.");

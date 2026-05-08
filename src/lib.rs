@@ -1,7 +1,7 @@
 pub mod cli;
 pub mod compat;
-pub mod cron;
 pub mod crawl;
+pub mod cron;
 pub mod error;
 pub mod filter;
 pub mod index;

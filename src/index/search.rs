@@ -1,7 +1,7 @@
-use std::collections::HashMap;
-use std::sync::Arc;
 use regex::Regex;
 use roaring::RoaringBitmap;
+use std::collections::HashMap;
+use std::sync::Arc;
 
 use crate::error::MlocateError;
 use crate::filter::{CmpOp, MimeFilter, ModifiedFilter, SizeFilter};
@@ -58,7 +58,13 @@ impl<'a> Iterator for SearchResults<'a> {
                 Err(e) => return Some(Err(MlocateError::IndexFormatError { details: e })),
             };
 
-            if !self.options.regex && !self.patterns.is_empty() && !self.patterns.iter().any(|pat| path_matches(&entry.full_path, pat, &self.options)) {
+            if !self.options.regex
+                && !self.patterns.is_empty()
+                && !self
+                    .patterns
+                    .iter()
+                    .any(|pat| path_matches(&entry.full_path, pat, &self.options))
+            {
                 continue;
             }
 
@@ -102,7 +108,9 @@ fn filter_matches(entry: &DiskFileEntry, filters: &SearchFilters, now: i64) -> b
             CmpOp::Ge => entry.size >= sf.bytes,
             CmpOp::Le => entry.size <= sf.bytes,
         };
-        if !ok { return false; }
+        if !ok {
+            return false;
+        }
     }
 
     if let Some(ref mf) = filters.modified {
@@ -112,7 +120,9 @@ fn filter_matches(entry: &DiskFileEntry, filters: &SearchFilters, now: i64) -> b
             CmpOp::Le => entry.mtime <= cutoff,
             CmpOp::Eq => entry.mtime == cutoff,
         };
-        if !ok { return false; }
+        if !ok {
+            return false;
+        }
     }
 
     if let Some(ref mime) = filters.mime {
@@ -122,7 +132,9 @@ fn filter_matches(entry: &DiskFileEntry, filters: &SearchFilters, now: i64) -> b
         } else {
             entry.mime_type == mime.pattern
         };
-        if !ok { return false; }
+        if !ok {
+            return false;
+        }
     }
 
     true
@@ -299,7 +311,7 @@ fn extract_regex_literals(pattern: &str) -> Vec<String> {
     }
 
     // Remove duplicates: when one literal is a substring of another, keep the longer one.
-    literals.sort_by(|a, b| b.len().cmp(&a.len()));
+    literals.sort_by_key(|b| std::cmp::Reverse(b.len()));
     let mut result = Vec::new();
     for lit in literals {
         if !result.iter().any(|r: &String| r.contains(&lit)) {
@@ -315,14 +327,18 @@ fn regex_search(
     options: &SearchOptions,
     _filters: &SearchFilters,
 ) -> Result<RoaringBitmap, MlocateError> {
-    let regexes: Vec<Regex> = patterns.iter().map(|p| {
-        let pattern = if options.ignore_case {
-            format!("(?i){}", p)
-        } else {
-            p.clone()
-        };
-        Regex::new(&pattern).map_err(|e| MlocateError::Other(format!("Invalid regex '{}': {}", p, e)))
-    }).collect::<Result<Vec<_>, _>>()?;
+    let regexes: Vec<Regex> = patterns
+        .iter()
+        .map(|p| {
+            let pattern = if options.ignore_case {
+                format!("(?i){}", p)
+            } else {
+                p.clone()
+            };
+            Regex::new(&pattern)
+                .map_err(|e| MlocateError::Other(format!("Invalid regex '{}': {}", p, e)))
+        })
+        .collect::<Result<Vec<_>, _>>()?;
 
     let mut candidates: Option<RoaringBitmap> = None;
     for pattern in patterns {
@@ -353,13 +369,13 @@ fn regex_search(
         }
     }
 
-    let pre_filtered = candidates.unwrap_or_else(|| {
-        (0..reader.num_files() as u32).collect()
-    });
+    let pre_filtered = candidates.unwrap_or_else(|| (0..reader.num_files() as u32).collect());
 
     let mut bm = RoaringBitmap::new();
     for doc_id in pre_filtered.iter() {
-        let path = reader.file_path_only(doc_id).map_err(|e| MlocateError::IndexFormatError { details: e })?;
+        let path = reader
+            .file_path_only(doc_id)
+            .map_err(|e| MlocateError::IndexFormatError { details: e })?;
         let target = if options.basename {
             match path.rfind('/') {
                 Some(idx) => &path[idx + 1..],
@@ -383,8 +399,8 @@ fn regex_search(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::index::format::IndexWriter;
     use crate::filter::{self};
+    use crate::index::format::IndexWriter;
 
     struct TestData {
         bytes: Vec<u8>,
@@ -399,11 +415,41 @@ mod tests {
     fn build_test_data() -> TestData {
         let mut writer = IndexWriter::new();
         let files = vec![
-            ("/home/user/foo.rs", 1234u64, 1746720000i64, 0o644u32, "text/x-rust"),
-            ("/home/user/bar.txt", 5678u64, 1746720100i64, 0o644u32, "text/plain"),
-            ("/etc/config.toml", 100u64, 1746700000i64, 0o600u32, "application/octet-stream"),
-            ("/home/user/README.md", 2000u64, 1746800000i64, 0o644u32, "text/markdown"),
-            ("/var/log/syslog", 500000u64, 1746600000i64, 0o600u32, "text/plain"),
+            (
+                "/home/user/foo.rs",
+                1234u64,
+                1746720000i64,
+                0o644u32,
+                "text/x-rust",
+            ),
+            (
+                "/home/user/bar.txt",
+                5678u64,
+                1746720100i64,
+                0o644u32,
+                "text/plain",
+            ),
+            (
+                "/etc/config.toml",
+                100u64,
+                1746700000i64,
+                0o600u32,
+                "application/octet-stream",
+            ),
+            (
+                "/home/user/README.md",
+                2000u64,
+                1746800000i64,
+                0o644u32,
+                "text/markdown",
+            ),
+            (
+                "/var/log/syslog",
+                500000u64,
+                1746600000i64,
+                0o600u32,
+                "text/plain",
+            ),
         ];
         for (path, size, mtime, mode, mime) in &files {
             let id = writer.add_file(path, *size, *mtime, *mode, mime);
@@ -415,7 +461,10 @@ mod tests {
             for bi in &bis {
                 writer.add_bigram_doc(trigram::bigram_to_bytes(bi), id);
             }
-            if let Some(ext) = std::path::Path::new(path).extension().and_then(|e| e.to_str()) {
+            if let Some(ext) = std::path::Path::new(path)
+                .extension()
+                .and_then(|e| e.to_str())
+            {
                 let mut ext_key = [0u8; 8];
                 let eb = ext.as_bytes();
                 ext_key[..eb.len().min(8)].copy_from_slice(eb);
@@ -444,7 +493,8 @@ mod tests {
             &["foo".to_string()],
             &SearchOptions::default(),
             &SearchFilters::default(),
-        ).unwrap();
+        )
+        .unwrap();
         let paths: Vec<String> = results.map(|r| r.unwrap().full_path).collect();
         assert_eq!(paths, vec!["/home/user/foo.rs"]);
     }
@@ -456,9 +506,13 @@ mod tests {
         let results = search(
             &reader,
             &["README".to_string()],
-            &SearchOptions { ignore_case: true, ..Default::default() },
+            &SearchOptions {
+                ignore_case: true,
+                ..Default::default()
+            },
             &SearchFilters::default(),
-        ).unwrap();
+        )
+        .unwrap();
         let paths: Vec<String> = results.map(|r| r.unwrap().full_path).collect();
         assert_eq!(paths, vec!["/home/user/README.md"]);
     }
@@ -470,9 +524,13 @@ mod tests {
         let results = search(
             &reader,
             &["syslog".to_string()],
-            &SearchOptions { basename: true, ..Default::default() },
+            &SearchOptions {
+                basename: true,
+                ..Default::default()
+            },
             &SearchFilters::default(),
-        ).unwrap();
+        )
+        .unwrap();
         let paths: Vec<String> = results.map(|r| r.unwrap().full_path).collect();
         assert_eq!(paths, vec!["/var/log/syslog"]);
     }
@@ -486,7 +544,8 @@ mod tests {
             &["rs".to_string()],
             &SearchOptions::default(),
             &SearchFilters::default(),
-        ).unwrap();
+        )
+        .unwrap();
         let paths: Vec<String> = results.map(|r| r.unwrap().full_path).collect();
         assert_eq!(paths, vec!["/home/user/foo.rs"]);
     }
@@ -503,7 +562,8 @@ mod tests {
                 mime: Some(filter::parse_mime_type("text/markdown").unwrap()),
                 ..Default::default()
             },
-        ).unwrap();
+        )
+        .unwrap();
         let paths: Vec<String> = results.map(|r| r.unwrap().full_path).collect();
         assert_eq!(paths, vec!["/home/user/README.md"]);
     }
@@ -515,9 +575,13 @@ mod tests {
         let results = search(
             &reader,
             &["user".to_string()],
-            &SearchOptions { limit: Some(2), ..Default::default() },
+            &SearchOptions {
+                limit: Some(2),
+                ..Default::default()
+            },
             &SearchFilters::default(),
-        ).unwrap();
+        )
+        .unwrap();
         let paths: Vec<String> = results.map(|r| r.unwrap().full_path).collect();
         assert_eq!(paths.len(), 2);
     }
@@ -531,10 +595,14 @@ mod tests {
             &[],
             &SearchOptions::default(),
             &SearchFilters {
-                size: Some(SizeFilter { bytes: 500000, operator: CmpOp::Ge }),
+                size: Some(SizeFilter {
+                    bytes: 500000,
+                    operator: CmpOp::Ge,
+                }),
                 ..Default::default()
             },
-        ).unwrap();
+        )
+        .unwrap();
         let paths: Vec<String> = results.map(|r| r.unwrap().full_path).collect();
         assert_eq!(paths, vec!["/var/log/syslog"]);
     }
@@ -546,9 +614,13 @@ mod tests {
         let results = search(
             &reader,
             &[r"\.rs$".to_string()],
-            &SearchOptions { regex: true, ..Default::default() },
+            &SearchOptions {
+                regex: true,
+                ..Default::default()
+            },
             &SearchFilters::default(),
-        ).unwrap();
+        )
+        .unwrap();
         let paths: Vec<String> = results.map(|r| r.unwrap().full_path).collect();
         assert_eq!(paths, vec!["/home/user/foo.rs"]);
     }
@@ -560,9 +632,14 @@ mod tests {
         let results = search(
             &reader,
             &[r"README".to_string()],
-            &SearchOptions { regex: true, ignore_case: true, ..Default::default() },
+            &SearchOptions {
+                regex: true,
+                ignore_case: true,
+                ..Default::default()
+            },
             &SearchFilters::default(),
-        ).unwrap();
+        )
+        .unwrap();
         let paths: Vec<String> = results.map(|r| r.unwrap().full_path).collect();
         assert_eq!(paths, vec!["/home/user/README.md"]);
     }
@@ -576,7 +653,8 @@ mod tests {
             &["foo".to_string(), "syslog".to_string()],
             &SearchOptions::default(),
             &SearchFilters::default(),
-        ).unwrap();
+        )
+        .unwrap();
         let paths: Vec<String> = results.map(|r| r.unwrap().full_path).collect();
         assert_eq!(paths, vec!["/home/user/foo.rs", "/var/log/syslog"]);
     }

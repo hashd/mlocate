@@ -1,5 +1,5 @@
 use std::fs;
-use std::io::{BufWriter, Write, Read};
+use std::io::{BufWriter, Read, Write};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -9,7 +9,7 @@ use crate::crawl::WalkStats;
 use crate::error::MlocateError;
 use crate::pipeline::FileEntry;
 
-use super::format::{IndexConfig, IndexWriter, IndexReader, DirTableEntry};
+use super::format::{DirTableEntry, IndexConfig, IndexReader, IndexWriter};
 use super::trigram;
 
 const CHUNK_SIZE: usize = 100_000;
@@ -29,8 +29,16 @@ pub fn build_index(
     config: IndexConfig,
     stats: Arc<WalkStats>,
 ) -> Result<(), MlocateError> {
-    let run_id = std::time::SystemTime::now().duration_since(std::time::SystemTime::UNIX_EPOCH).unwrap_or_default().as_nanos();
-    let chunk_files = sort_chunks_to_disk(rx, db_path.parent().unwrap_or(Path::new(".")), stats.clone(), run_id)?;
+    let run_id = std::time::SystemTime::now()
+        .duration_since(std::time::SystemTime::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_nanos();
+    let chunk_files = sort_chunks_to_disk(
+        rx,
+        db_path.parent().unwrap_or(Path::new(".")),
+        stats.clone(),
+        run_id,
+    )?;
 
     let tmp_path = db_path.with_extension("db.tmp");
 
@@ -59,8 +67,16 @@ pub fn build_index_incremental(
     stats: Arc<WalkStats>,
     skipped_dirs: &[DirTableEntry],
 ) -> Result<(), MlocateError> {
-    let run_id = std::time::SystemTime::now().duration_since(std::time::SystemTime::UNIX_EPOCH).unwrap_or_default().as_nanos();
-    let chunk_files = sort_chunks_to_disk(rx, db_path.parent().unwrap_or(Path::new(".")), stats.clone(), run_id)?;
+    let run_id = std::time::SystemTime::now()
+        .duration_since(std::time::SystemTime::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_nanos();
+    let chunk_files = sort_chunks_to_disk(
+        rx,
+        db_path.parent().unwrap_or(Path::new(".")),
+        stats.clone(),
+        run_id,
+    )?;
 
     let tmp_path = db_path.with_extension("db.tmp");
 
@@ -73,13 +89,22 @@ pub fn build_index_incremental(
     let mut writer = merge_chunks(&chunk_files, stats)?;
 
     for dir_entry in skipped_dirs {
-        let paths = old_reader.get_file_paths_in_dir(dir_entry)
-            .map_err(|e| MlocateError::Other(format!("Failed to read old entries for {}: {}", dir_entry.path, e)))?;
-        let entries = old_reader.get_files_in_dir(dir_entry)
-            .map_err(|e| MlocateError::Other(format!("Failed to read old entries for {}: {}", dir_entry.path, e)))?;
+        let paths = old_reader.get_file_paths_in_dir(dir_entry).map_err(|e| {
+            MlocateError::Other(format!(
+                "Failed to read old entries for {}: {}",
+                dir_entry.path, e
+            ))
+        })?;
+        let entries = old_reader.get_files_in_dir(dir_entry).map_err(|e| {
+            MlocateError::Other(format!(
+                "Failed to read old entries for {}: {}",
+                dir_entry.path, e
+            ))
+        })?;
 
         for (path, entry) in paths.iter().zip(entries.iter()) {
-            let doc_id = writer.add_file(path, entry.size, entry.mtime, entry.mode, &entry.mime_type);
+            let doc_id =
+                writer.add_file(path, entry.size, entry.mtime, entry.mode, &entry.mime_type);
             index_file_trigrams(&mut writer, path, doc_id);
         }
     }
@@ -117,7 +142,9 @@ fn sort_chunks_to_disk(
             chunks.push(flush_chunk(&mut buffer, chunk_dir, chunk_idx, run_id)?);
             chunk_idx += 1;
             total_added += CHUNK_SIZE;
-            stats.files_added.store(total_added, std::sync::atomic::Ordering::Relaxed);
+            stats
+                .files_added
+                .store(total_added, std::sync::atomic::Ordering::Relaxed);
         }
     }
 
@@ -125,7 +152,9 @@ fn sort_chunks_to_disk(
         let pre_drain = buffer.len();
         chunks.push(flush_chunk(&mut buffer, chunk_dir, chunk_idx, run_id)?);
         total_added += pre_drain;
-        stats.files_added.store(total_added, std::sync::atomic::Ordering::Relaxed);
+        stats
+            .files_added
+            .store(total_added, std::sync::atomic::Ordering::Relaxed);
     }
 
     Ok(chunks)
@@ -141,27 +170,49 @@ fn flush_chunk(
     buffer.dedup_by(|a, b| a.path == b.path);
 
     let path = chunk_dir.join(format!("mlocate_chunk_{:04}_{}.tmp", idx, run_id));
-    let file = fs::File::create(&path).map_err(|e| MlocateError::Other(format!(
-        "Cannot create chunk file {}: {}", path.display(), e
-    )))?;
+    let file = fs::File::create(&path).map_err(|e| {
+        MlocateError::Other(format!(
+            "Cannot create chunk file {}: {}",
+            path.display(),
+            e
+        ))
+    })?;
     let mut writer = BufWriter::new(file);
 
     let count = buffer.len() as u32;
-    writer.write_all(&count.to_le_bytes()).map_err(|e| MlocateError::Other(e.to_string()))?;
+    writer
+        .write_all(&count.to_le_bytes())
+        .map_err(|e| MlocateError::Other(e.to_string()))?;
 
     for entry in buffer.drain(..) {
         let path_bytes = entry.path.as_bytes();
-        writer.write_all(&(path_bytes.len() as u32).to_le_bytes()).map_err(|e| MlocateError::Other(e.to_string()))?;
-        writer.write_all(path_bytes).map_err(|e| MlocateError::Other(e.to_string()))?;
-        writer.write_all(&entry.size.to_le_bytes()).map_err(|e| MlocateError::Other(e.to_string()))?;
-        writer.write_all(&entry.mtime.to_le_bytes()).map_err(|e| MlocateError::Other(e.to_string()))?;
-        writer.write_all(&entry.mode.to_le_bytes()).map_err(|e| MlocateError::Other(e.to_string()))?;
+        writer
+            .write_all(&(path_bytes.len() as u32).to_le_bytes())
+            .map_err(|e| MlocateError::Other(e.to_string()))?;
+        writer
+            .write_all(path_bytes)
+            .map_err(|e| MlocateError::Other(e.to_string()))?;
+        writer
+            .write_all(&entry.size.to_le_bytes())
+            .map_err(|e| MlocateError::Other(e.to_string()))?;
+        writer
+            .write_all(&entry.mtime.to_le_bytes())
+            .map_err(|e| MlocateError::Other(e.to_string()))?;
+        writer
+            .write_all(&entry.mode.to_le_bytes())
+            .map_err(|e| MlocateError::Other(e.to_string()))?;
         let mime_bytes = entry.mime_type.as_bytes();
-        writer.write_all(&(mime_bytes.len() as u8).to_le_bytes()).map_err(|e| MlocateError::Other(e.to_string()))?;
-        writer.write_all(mime_bytes).map_err(|e| MlocateError::Other(e.to_string()))?;
+        writer
+            .write_all(&(mime_bytes.len() as u8).to_le_bytes())
+            .map_err(|e| MlocateError::Other(e.to_string()))?;
+        writer
+            .write_all(mime_bytes)
+            .map_err(|e| MlocateError::Other(e.to_string()))?;
     }
 
-    writer.flush().map_err(|e| MlocateError::Other(e.to_string()))?;
+    writer
+        .flush()
+        .map_err(|e| MlocateError::Other(e.to_string()))?;
     Ok(path)
 }
 
@@ -173,15 +224,20 @@ struct ChunkReader {
 
 impl ChunkReader {
     fn open(path: &Path) -> Result<Self, MlocateError> {
-        let mut file = fs::File::open(path).map_err(|e| MlocateError::Other(format!(
-            "Cannot open chunk {}: {}", path.display(), e
-        )))?;
+        let mut file = fs::File::open(path).map_err(|e| {
+            MlocateError::Other(format!("Cannot open chunk {}: {}", path.display(), e))
+        })?;
 
         let mut count_buf = [0u8; 4];
-        file.read_exact(&mut count_buf).map_err(|e| MlocateError::Other(e.to_string()))?;
+        file.read_exact(&mut count_buf)
+            .map_err(|e| MlocateError::Other(e.to_string()))?;
         let remaining = u32::from_le_bytes(count_buf);
 
-        let mut reader = ChunkReader { file, remaining, current: None };
+        let mut reader = ChunkReader {
+            file,
+            remaining,
+            current: None,
+        };
         reader.advance()?;
         Ok(reader)
     }
@@ -193,38 +249,66 @@ impl ChunkReader {
         }
 
         let mut len_buf = [0u8; 4];
-        self.file.read_exact(&mut len_buf).map_err(|e| MlocateError::Other(e.to_string()))?;
+        self.file
+            .read_exact(&mut len_buf)
+            .map_err(|e| MlocateError::Other(e.to_string()))?;
         let path_len = u32::from_le_bytes(len_buf) as usize;
 
         let mut path_buf = vec![0u8; path_len];
-        self.file.read_exact(&mut path_buf).map_err(|e| MlocateError::Other(e.to_string()))?;
+        self.file
+            .read_exact(&mut path_buf)
+            .map_err(|e| MlocateError::Other(e.to_string()))?;
         let path = String::from_utf8_lossy(&path_buf).to_string();
 
         let mut num_buf = [0u8; 8];
-        self.file.read_exact(&mut num_buf).map_err(|e| MlocateError::Other(e.to_string()))?;
+        self.file
+            .read_exact(&mut num_buf)
+            .map_err(|e| MlocateError::Other(e.to_string()))?;
         let size = u64::from_le_bytes(num_buf);
 
-        self.file.read_exact(&mut num_buf).map_err(|e| MlocateError::Other(e.to_string()))?;
+        self.file
+            .read_exact(&mut num_buf)
+            .map_err(|e| MlocateError::Other(e.to_string()))?;
         let mtime = i64::from_le_bytes(num_buf);
 
         let mut mode_buf = [0u8; 4];
-        self.file.read_exact(&mut mode_buf).map_err(|e| MlocateError::Other(e.to_string()))?;
+        self.file
+            .read_exact(&mut mode_buf)
+            .map_err(|e| MlocateError::Other(e.to_string()))?;
         let mode = u32::from_le_bytes(mode_buf);
 
         let mut mime_len_buf = [0u8; 1];
-        self.file.read_exact(&mut mime_len_buf).map_err(|e| MlocateError::Other(e.to_string()))?;
+        self.file
+            .read_exact(&mut mime_len_buf)
+            .map_err(|e| MlocateError::Other(e.to_string()))?;
         let mime_len = mime_len_buf[0] as usize;
         let mut mime_buf = vec![0u8; mime_len];
-        self.file.read_exact(&mut mime_buf).map_err(|e| MlocateError::Other(e.to_string()))?;
+        self.file
+            .read_exact(&mut mime_buf)
+            .map_err(|e| MlocateError::Other(e.to_string()))?;
         let mime_type = String::from_utf8_lossy(&mime_buf).to_string();
 
         self.remaining -= 1;
-        self.current = Some(ChunkEntry { path, size, mtime, mode, mime_type });
+        self.current = Some(ChunkEntry {
+            path,
+            size,
+            mtime,
+            mode,
+            mime_type,
+        });
         Ok(())
     }
 
     fn peek(&self) -> Option<(&str, u64, i64, u32, &str)> {
-        self.current.as_ref().map(|e| (e.path.as_str(), e.size, e.mtime, e.mode, e.mime_type.as_str()))
+        self.current.as_ref().map(|e| {
+            (
+                e.path.as_str(),
+                e.size,
+                e.mtime,
+                e.mode,
+                e.mime_type.as_str(),
+            )
+        })
     }
 }
 
@@ -272,7 +356,9 @@ fn merge_chunks(
             index_file_trigrams(&mut writer, path, doc_id);
             i += 1;
             if (i as usize).is_multiple_of(50_000) {
-                stats.files_added.store(i as usize, std::sync::atomic::Ordering::Relaxed);
+                stats
+                    .files_added
+                    .store(i as usize, std::sync::atomic::Ordering::Relaxed);
             }
         }
         readers[item.reader_idx].advance()?;
@@ -321,12 +407,16 @@ fn write_atomic(
     writer: &IndexWriter,
 ) -> Result<(), MlocateError> {
     {
-        let data = writer.into_bytes(config).map_err(|e| MlocateError::Other(format!(
-            "Failed to write index: {}", e
-        )))?;
-        std::fs::write(tmp_path, &data).map_err(|e| MlocateError::Other(format!(
-            "Cannot create temp index {}: {}", tmp_path.display(), e
-        )))?;
+        let data = writer
+            .into_bytes(config)
+            .map_err(|e| MlocateError::Other(format!("Failed to write index: {}", e)))?;
+        std::fs::write(tmp_path, &data).map_err(|e| {
+            MlocateError::Other(format!(
+                "Cannot create temp index {}: {}",
+                tmp_path.display(),
+                e
+            ))
+        })?;
     }
 
     if let Some(parent) = db_path.parent() {
@@ -337,12 +427,14 @@ fn write_atomic(
         }
     }
 
-    fs::rename(tmp_path, db_path).map_err(|e| MlocateError::Other(format!(
-        "Failed to rename {} to {}: {}",
-        tmp_path.display(),
-        db_path.display(),
-        e
-    )))?;
+    fs::rename(tmp_path, db_path).map_err(|e| {
+        MlocateError::Other(format!(
+            "Failed to rename {} to {}: {}",
+            tmp_path.display(),
+            db_path.display(),
+            e
+        ))
+    })?;
 
     Ok(())
 }
@@ -375,11 +467,11 @@ impl PartialEq for HeapItem {
 
 #[cfg(test)]
 mod tests {
+    use super::super::format::IndexReader;
     use super::*;
     use crossbeam_channel::bounded;
-    use super::super::format::IndexReader;
-    use std::sync::Arc;
     use std::sync::atomic::AtomicUsize;
+    use std::sync::Arc;
 
     #[test]
     fn test_build_and_read_back() {
@@ -390,14 +482,16 @@ mod tests {
             mtime: 1746720000,
             mode: 0o644,
             mime_type: "text/x-rust".into(),
-        }).unwrap();
+        })
+        .unwrap();
         tx.send(FileEntry {
             full_path: "/tmp/a/world.md".into(),
             size: 200,
             mtime: 1746720100,
             mode: 0o644,
             mime_type: "text/markdown".into(),
-        }).unwrap();
+        })
+        .unwrap();
         drop(tx);
 
         let config = IndexConfig {
@@ -459,7 +553,8 @@ mod tests {
         let tmp = tempfile::NamedTempFile::new().unwrap();
         build_index(rx, tmp.path(), config, stats).unwrap();
 
-        let mmap = unsafe { memmap2::Mmap::map(&std::fs::File::open(tmp.path()).unwrap()).unwrap() };
+        let mmap =
+            unsafe { memmap2::Mmap::map(&std::fs::File::open(tmp.path()).unwrap()).unwrap() };
         let reader = IndexReader::new(&mmap).unwrap();
         assert_eq!(reader.num_files(), 1);
     }
@@ -474,7 +569,8 @@ mod tests {
                 mtime: 1746720000,
                 mode: 0o644,
                 mime_type: "text/plain".into(),
-            }).unwrap();
+            })
+            .unwrap();
         }
         drop(tx);
 
@@ -496,7 +592,8 @@ mod tests {
         let tmp = tempfile::NamedTempFile::new().unwrap();
         build_index(rx, tmp.path(), config, stats).unwrap();
 
-        let mmap = unsafe { memmap2::Mmap::map(&std::fs::File::open(tmp.path()).unwrap()).unwrap() };
+        let mmap =
+            unsafe { memmap2::Mmap::map(&std::fs::File::open(tmp.path()).unwrap()).unwrap() };
         let reader = IndexReader::new(&mmap).unwrap();
         assert_eq!(reader.num_files(), (CHUNK_SIZE + 500) as u64);
     }

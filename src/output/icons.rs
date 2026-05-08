@@ -29,5 +29,6 @@ pub fn get_icon(path: &str) -> String {
         "toml" => "\u{e6b2} ",
         "lock" => "\u{f023} ",
         _ => "\u{f713} ",
-    }.to_string()
+    }
+    .to_string()
 }

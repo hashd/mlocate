@@ -10,11 +10,7 @@ pub struct TableResult {
     pub mime_type: String,
 }
 
-pub fn render_table(
-    results: &[TableResult],
-    icons: bool,
-    use_color: bool,
-) -> String {
+pub fn render_table(results: &[TableResult], icons: bool, use_color: bool) -> String {
     let term_width = term_width();
 
     if results.is_empty() {
@@ -58,7 +54,13 @@ pub fn render_table(
                 let parts: Vec<&str> = display_path.rsplitn(2, '/').collect();
                 let file = parts.first().unwrap_or(&"");
                 let prefix = if parts.len() > 1 { parts[1] } else { "" };
-                format!("{}{}{}/{}", icon_str, prefix, "...", file.bold().bright_white())
+                format!(
+                    "{}{}{}/{}",
+                    icon_str,
+                    prefix,
+                    "...",
+                    file.bold().bright_white()
+                )
             } else if let Some(idx) = display_path.rfind(filename) {
                 let prefix = &display_path[..idx];
                 format!("{}{}{}", icon_str, prefix, filename.bold().bright_white())
@@ -103,7 +105,12 @@ fn render_narrow(results: &[TableResult], icons: bool, use_color: bool) -> Strin
                 .file_name()
                 .and_then(|n| n.to_str())
                 .unwrap_or(&r.full_path);
-            output.push_str(&format!("{}{}{}\n", icon_str, &r.full_path[..r.full_path.len()-filename.len()], filename.bold().bright_white()));
+            output.push_str(&format!(
+                "{}{}{}\n",
+                icon_str,
+                &r.full_path[..r.full_path.len() - filename.len()],
+                filename.bold().bright_white()
+            ));
         } else {
             output.push_str(&format!("{}{}\n", icon_str, r.full_path));
         }

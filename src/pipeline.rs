@@ -16,18 +16,22 @@ pub fn channel_sizes(extractor_threads: usize) -> (usize, usize) {
     (crawl_to_extract, extract_to_batch)
 }
 
-pub fn create_channels(extractor_threads: usize, _batch_size: usize) -> (Sender<PathBuf>, Receiver<PathBuf>, Sender<FileEntry>, Receiver<FileEntry>) {
+pub fn create_channels(
+    extractor_threads: usize,
+    _batch_size: usize,
+) -> (
+    Sender<PathBuf>,
+    Receiver<PathBuf>,
+    Sender<FileEntry>,
+    Receiver<FileEntry>,
+) {
     let (crawl_size, extract_size) = channel_sizes(extractor_threads);
     let (crawl_tx, crawl_rx) = bounded::<PathBuf>(crawl_size);
     let (extract_tx, extract_rx) = bounded::<FileEntry>(extract_size);
     (crawl_tx, crawl_rx, extract_tx, extract_rx)
 }
 
-pub fn run_extractor(
-    rx: Receiver<PathBuf>,
-    tx: Sender<FileEntry>,
-    skip_magic: bool,
-) {
+pub fn run_extractor(rx: Receiver<PathBuf>, tx: Sender<FileEntry>, skip_magic: bool) {
     while let Ok(path) = rx.recv() {
         if let Some(entry) = extract_metadata(&path, skip_magic) {
             if tx.send(entry).is_err() {

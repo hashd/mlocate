@@ -64,12 +64,10 @@ impl Header {
             return Err("unsupported format version");
         }
 
-        let read_u64 = |off: usize| -> u64 {
-            u64::from_le_bytes(buf[off..off + 8].try_into().unwrap())
-        };
-        let read_u32 = |off: usize| -> u32 {
-            u32::from_le_bytes(buf[off..off + 4].try_into().unwrap())
-        };
+        let read_u64 =
+            |off: usize| -> u64 { u64::from_le_bytes(buf[off..off + 8].try_into().unwrap()) };
+        let read_u32 =
+            |off: usize| -> u32 { u32::from_le_bytes(buf[off..off + 4].try_into().unwrap()) };
 
         let v2 = version == FORMAT_VERSION;
         Ok(Header {

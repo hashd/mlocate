@@ -1,10 +1,13 @@
-use std::collections::BTreeMap;
-use std::io::{self, Write, Seek};
 use roaring::RoaringBitmap;
+use std::collections::BTreeMap;
+use std::io::{self, Seek, Write};
 
-use super::header::{Header, FORMAT_VERSION, HEADER_SIZE_V2, FEATURE_DIR_TABLE, FEATURE_EXT_INDEX, FEATURE_BIGRAM_INDEX};
 use super::dir::DirTableEntry;
 use super::format::IndexConfig;
+use super::header::{
+    Header, FEATURE_BIGRAM_INDEX, FEATURE_DIR_TABLE, FEATURE_EXT_INDEX, FORMAT_VERSION,
+    HEADER_SIZE_V2,
+};
 
 pub struct IndexWriter {
     pub file_dir_buf: io::Cursor<Vec<u8>>,
@@ -33,18 +36,29 @@ impl IndexWriter {
         }
     }
 
-    pub fn add_file(&mut self, full_path: &str, size: u64, mtime: i64, mode: u32, mime_type: &str) -> u32 {
+    pub fn add_file(
+        &mut self,
+        full_path: &str,
+        size: u64,
+        mtime: i64,
+        mode: u32,
+        mime_type: &str,
+    ) -> u32 {
         let id = self.file_offsets.len() as u32;
         self.file_offsets.push(self.file_dir_buf.position());
 
         let path_bytes = full_path.as_bytes();
         let mime_bytes = mime_type.as_bytes();
-        self.file_dir_buf.write_all(&(path_bytes.len() as u32).to_le_bytes()).unwrap();
+        self.file_dir_buf
+            .write_all(&(path_bytes.len() as u32).to_le_bytes())
+            .unwrap();
         self.file_dir_buf.write_all(path_bytes).unwrap();
         self.file_dir_buf.write_all(&size.to_le_bytes()).unwrap();
         self.file_dir_buf.write_all(&mtime.to_le_bytes()).unwrap();
         self.file_dir_buf.write_all(&mode.to_le_bytes()).unwrap();
-        self.file_dir_buf.write_all(&(mime_bytes.len() as u8).to_le_bytes()).unwrap();
+        self.file_dir_buf
+            .write_all(&(mime_bytes.len() as u8).to_le_bytes())
+            .unwrap();
         self.file_dir_buf.write_all(mime_bytes).unwrap();
 
         id
@@ -62,7 +76,14 @@ impl IndexWriter {
         self.ext_bitmaps.entry(ext).or_default().insert(doc_id);
     }
 
-    pub fn add_dir(&mut self, path: &str, mtime: i64, ino: u64, first_file_id: u32, num_files: u32) {
+    pub fn add_dir(
+        &mut self,
+        path: &str,
+        mtime: i64,
+        ino: u64,
+        first_file_id: u32,
+        num_files: u32,
+    ) {
         self.dir_entries.push(DirTableEntry {
             path: path.to_string(),
             mtime,

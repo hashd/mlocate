@@ -36,32 +36,55 @@ pub fn parse_size(input: &str) -> Result<SizeFilter, MlocateError> {
     };
 
     let bytes = parse_bytes(value_part)?;
-    Ok(SizeFilter { bytes, operator: op })
+    Ok(SizeFilter {
+        bytes,
+        operator: op,
+    })
 }
 
 fn parse_bytes(input: &str) -> Result<u64, MlocateError> {
     let input = input.trim().to_uppercase();
     if let Some(num_str) = input.strip_suffix("GB") {
-        return num_str.trim().parse::<u64>()
+        return num_str
+            .trim()
+            .parse::<u64>()
             .map(|n| n * 1_000_000_000)
-            .map_err(|_| MlocateError::InvalidSizeFilter { input: input.to_string() });
+            .map_err(|_| MlocateError::InvalidSizeFilter {
+                input: input.to_string(),
+            });
     }
     if let Some(num_str) = input.strip_suffix("MB") {
-        return num_str.trim().parse::<u64>()
+        return num_str
+            .trim()
+            .parse::<u64>()
             .map(|n| n * 1_000_000)
-            .map_err(|_| MlocateError::InvalidSizeFilter { input: input.to_string() });
+            .map_err(|_| MlocateError::InvalidSizeFilter {
+                input: input.to_string(),
+            });
     }
     if let Some(num_str) = input.strip_suffix("KB") {
-        return num_str.trim().parse::<u64>()
+        return num_str
+            .trim()
+            .parse::<u64>()
             .map(|n| n * 1_000)
-            .map_err(|_| MlocateError::InvalidSizeFilter { input: input.to_string() });
+            .map_err(|_| MlocateError::InvalidSizeFilter {
+                input: input.to_string(),
+            });
     }
     if let Some(num_str) = input.strip_suffix('B') {
-        return num_str.trim().parse::<u64>()
-            .map_err(|_| MlocateError::InvalidSizeFilter { input: input.to_string() });
+        return num_str
+            .trim()
+            .parse::<u64>()
+            .map_err(|_| MlocateError::InvalidSizeFilter {
+                input: input.to_string(),
+            });
     }
-    input.trim().parse::<u64>()
-        .map_err(|_| MlocateError::InvalidSizeFilter { input: input.to_string() })
+    input
+        .trim()
+        .parse::<u64>()
+        .map_err(|_| MlocateError::InvalidSizeFilter {
+            input: input.to_string(),
+        })
 }
 
 pub fn parse_modified(input: &str) -> Result<ModifiedFilter, MlocateError> {
@@ -75,49 +98,75 @@ pub fn parse_modified(input: &str) -> Result<ModifiedFilter, MlocateError> {
     };
 
     let seconds = parse_duration(value_part)?;
-    Ok(ModifiedFilter { seconds, operator: op })
+    Ok(ModifiedFilter {
+        seconds,
+        operator: op,
+    })
 }
 
 fn parse_duration(input: &str) -> Result<i64, MlocateError> {
     let input = input.trim();
     if let Some(num_str) = input.strip_suffix('w') {
-        return num_str.parse::<i64>()
+        return num_str
+            .parse::<i64>()
             .map(|n| n * 7 * 24 * 3600)
-            .map_err(|_| MlocateError::InvalidTimeFilter { input: input.to_string() });
+            .map_err(|_| MlocateError::InvalidTimeFilter {
+                input: input.to_string(),
+            });
     }
     if let Some(num_str) = input.strip_suffix('d') {
-        return num_str.parse::<i64>()
-            .map(|n| n * 24 * 3600)
-            .map_err(|_| MlocateError::InvalidTimeFilter { input: input.to_string() });
+        return num_str.parse::<i64>().map(|n| n * 24 * 3600).map_err(|_| {
+            MlocateError::InvalidTimeFilter {
+                input: input.to_string(),
+            }
+        });
     }
     if let Some(num_str) = input.strip_suffix('h') {
-        return num_str.parse::<i64>()
-            .map(|n| n * 3600)
-            .map_err(|_| MlocateError::InvalidTimeFilter { input: input.to_string() });
+        return num_str.parse::<i64>().map(|n| n * 3600).map_err(|_| {
+            MlocateError::InvalidTimeFilter {
+                input: input.to_string(),
+            }
+        });
     }
     if let Some(num_str) = input.strip_suffix('m') {
-        return num_str.parse::<i64>()
-            .map(|n| n * 60)
-            .map_err(|_| MlocateError::InvalidTimeFilter { input: input.to_string() });
+        return num_str.parse::<i64>().map(|n| n * 60).map_err(|_| {
+            MlocateError::InvalidTimeFilter {
+                input: input.to_string(),
+            }
+        });
     }
-    Err(MlocateError::InvalidTimeFilter { input: input.to_string() })
+    Err(MlocateError::InvalidTimeFilter {
+        input: input.to_string(),
+    })
 }
 
 pub fn parse_mime_type(input: &str) -> Result<MimeFilter, MlocateError> {
     let input = input.trim();
     if input.is_empty() {
-        return Err(MlocateError::InvalidMimeType { input: input.to_string() });
+        return Err(MlocateError::InvalidMimeType {
+            input: input.to_string(),
+        });
     }
     if input.contains('*') {
         if !input.contains('/') || input.chars().filter(|&c| c == '*').count() > 1 {
-            return Err(MlocateError::InvalidMimeType { input: input.to_string() });
+            return Err(MlocateError::InvalidMimeType {
+                input: input.to_string(),
+            });
         }
-        Ok(MimeFilter { pattern: input.to_string(), is_glob: true })
+        Ok(MimeFilter {
+            pattern: input.to_string(),
+            is_glob: true,
+        })
     } else {
         if !input.contains('/') {
-            return Err(MlocateError::InvalidMimeType { input: input.to_string() });
+            return Err(MlocateError::InvalidMimeType {
+                input: input.to_string(),
+            });
         }
-        Ok(MimeFilter { pattern: input.to_string(), is_glob: false })
+        Ok(MimeFilter {
+            pattern: input.to_string(),
+            is_glob: false,
+        })
     }
 }
 

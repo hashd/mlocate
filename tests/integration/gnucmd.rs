@@ -1,8 +1,7 @@
 use std::process::Command;
 
 fn mlocate_bin() -> String {
-    std::env::var("CARGO_BIN_EXE_mlocate")
-        .unwrap_or_else(|_| "target/debug/mlocate".to_string())
+    std::env::var("CARGO_BIN_EXE_mlocate").unwrap_or_else(|_| "target/debug/mlocate".to_string())
 }
 
 fn mupdatedb_bin() -> String {
@@ -53,5 +52,9 @@ fn test_gnu_s_short_flag() {
         .expect("should run");
     assert!(output.status.success(), "Command failed: {:?}", output);
     let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("\"schema_version\""), "Expected JSON schema in: {}", stdout);
+    assert!(
+        stdout.contains("\"schema_version\""),
+        "Expected JSON schema in: {}",
+        stdout
+    );
 }
