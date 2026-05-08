@@ -14,7 +14,13 @@ struct SearchResult {
 
 fn main() -> anyhow::Result<()> {
     let cli = SearchCli::parse();
+
     mlocate::compat::warn_gnu_stubs(&cli);
+
+    if cli.version {
+        println!("mlocate {}", env!("CARGO_PKG_VERSION"));
+        return Ok(());
+    }
 
     if cli.help {
         SearchCli::command().print_help()?;

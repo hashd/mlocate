@@ -2,7 +2,7 @@ use crate::cli::SearchCli;
 
 pub fn warn_gnu_stubs(cli: &SearchCli) {
     let stubs: Vec<(&str, bool)> = vec![
-        ("-L/--follow", cli.follow && !cli.gnu),
+        ("-L/--follow", cli.follow),
         ("-A/--all", cli.all),
         ("-w/--wholename", cli.wholename),
         ("-P/--nofollow", cli.nofollow),
