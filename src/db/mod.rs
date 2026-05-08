@@ -73,12 +73,9 @@ pub fn retry_checkpoint_wal(db_path: &str, max_retries: u32) -> Result<(), Mloca
         if attempt > 0 {
             std::thread::sleep(Duration::from_millis(100));
         }
-        match Connection::open(db_path) {
-            Ok(conn) => {
-                let _ = conn.execute_batch("CHECKPOINT;");
-                drop(conn);
-            }
-            Err(_) => {}
+        if let Ok(conn) = Connection::open(db_path) {
+            let _ = conn.execute_batch("CHECKPOINT;");
+            drop(conn);
         }
     }
     if Path::new(&wal_path).exists() {

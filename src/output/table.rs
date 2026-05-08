@@ -25,7 +25,7 @@ pub fn render_table(
         return render_narrow(results, icons, use_color);
     }
 
-    let path_width = ((term_width as f64 * 0.6) as usize).max(20).min(120);
+    let path_width = ((term_width as f64 * 0.6) as usize).clamp(20, 120);
     let _size_width = 12usize;
     let _time_width = 14usize;
 

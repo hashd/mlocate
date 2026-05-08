@@ -69,20 +69,20 @@ pub fn build_trigram_query(
 
     let intersect_clauses: Vec<String> = trigrams
         .iter()
-        .map(|_| format!("SELECT file_id FROM trigrams WHERE trigram = ?"))
+        .map(|_| "SELECT file_id FROM trigrams WHERE trigram = ?".to_string())
         .collect();
     let intersect_sql = intersect_clauses.join(" INTERSECT ");
 
     let final_condition = if basename {
         if ignore_case {
-            format!("LOWER(full_path) LIKE LOWER(?) ESCAPE '\\'")
+            "LOWER(full_path) LIKE LOWER(?) ESCAPE '\\'".to_string()
         } else {
-            format!("full_path LIKE ? ESCAPE '\\'")
+            "full_path LIKE ? ESCAPE '\\'".to_string()
         }
     } else if ignore_case {
-        format!("LOWER(full_path) LIKE LOWER(?) ESCAPE '\\'")
+        "LOWER(full_path) LIKE LOWER(?) ESCAPE '\\'".to_string()
     } else {
-        format!("full_path LIKE ? ESCAPE '\\'")
+        "full_path LIKE ? ESCAPE '\\'".to_string()
     };
 
     Some(format!(
@@ -96,20 +96,6 @@ pub fn escape_like(pattern: &str) -> String {
         .replace('\\', "\\\\")
         .replace('%', "\\%")
         .replace('_', "\\_")
-}
-
-pub fn pattern_to_like(pattern: &str, ignore_case: bool, basename: bool) -> (String, bool) {
-    let escaped = escape_like(pattern);
-    if basename {
-        (
-            format!("%/{}", if ignore_case { escaped.to_ascii_lowercase() } else { escaped }),
-            false,
-        )
-    } else if ignore_case {
-        (escaped.to_ascii_lowercase(), true)
-    } else {
-        (escaped, false)
-    }
 }
 
 #[cfg(test)]

@@ -56,6 +56,10 @@ fn main() -> anyhow::Result<()> {
     let db_path = mlocate::platform::db_path(cli.database.as_deref());
 
     if cli.schema {
+        if !std::path::Path::new(&db_path).exists() {
+            eprintln!("Error: No database found at {}. Run 'mupdatedb' to create one.", db_path);
+            std::process::exit(2);
+        }
         let conn = match db::open_or_create(&db_path) {
             Ok(c) => c,
             Err(e) => {
@@ -79,6 +83,11 @@ fn main() -> anyhow::Result<()> {
 
     if cli.patterns.is_empty() {
         eprintln!("Error: A search pattern is required. Usage: mlocate [OPTIONS] <pattern>");
+        std::process::exit(2);
+    }
+
+    if !std::path::Path::new(&db_path).exists() {
+        eprintln!("Error: No database found at {}. Run 'mupdatedb' to create one.", db_path);
         std::process::exit(2);
     }
 
@@ -168,7 +177,7 @@ fn main() -> anyhow::Result<()> {
         mlocate::cli::ColorMode::Never => false,
         mlocate::cli::ColorMode::Auto => {
             colored::control::set_override(true);
-            is_terminal::is_terminal(&std::io::stdout())
+            is_terminal::is_terminal(std::io::stdout())
         }
     };
 
@@ -192,7 +201,7 @@ fn main() -> anyhow::Result<()> {
     } else if cli.plain || cli.gnu {
         let paths: Vec<String> = results.iter().map(|r| r.full_path.clone()).collect();
         println!("{}", output::plain::render_plain(&paths));
-    } else if cli.table || is_terminal::is_terminal(&std::io::stdout()) {
+    } else if cli.table || is_terminal::is_terminal(std::io::stdout()) {
         let table_results: Vec<output::table::TableResult> = results
             .iter()
             .map(|r| output::table::TableResult {

@@ -27,10 +27,10 @@ pub enum CmpOp {
 
 pub fn parse_size(input: &str) -> Result<SizeFilter, MlocateError> {
     let input = input.trim();
-    let (value_part, op) = if input.ends_with('+') {
-        (&input[..input.len() - 1], CmpOp::Ge)
-    } else if input.ends_with('-') {
-        (&input[..input.len() - 1], CmpOp::Le)
+    let (value_part, op) = if let Some(stripped) = input.strip_suffix('+') {
+        (stripped, CmpOp::Ge)
+    } else if let Some(stripped) = input.strip_suffix('-') {
+        (stripped, CmpOp::Le)
     } else {
         (input, CmpOp::Eq)
     };
@@ -66,10 +66,10 @@ fn parse_bytes(input: &str) -> Result<u64, MlocateError> {
 
 pub fn parse_modified(input: &str) -> Result<ModifiedFilter, MlocateError> {
     let input = input.trim();
-    let (value_part, op) = if input.ends_with('+') {
-        (&input[..input.len() - 1], CmpOp::Ge)
-    } else if input.ends_with('-') {
-        (&input[..input.len() - 1], CmpOp::Le)
+    let (value_part, op) = if let Some(stripped) = input.strip_suffix('+') {
+        (stripped, CmpOp::Ge)
+    } else if let Some(stripped) = input.strip_suffix('-') {
+        (stripped, CmpOp::Le)
     } else {
         (input, CmpOp::Eq)
     };

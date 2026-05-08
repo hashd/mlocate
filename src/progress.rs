@@ -33,13 +33,13 @@ impl Progress {
         let elapsed = self.start.elapsed().as_secs_f64();
         let rate = if elapsed > 0.0 { scanned as f64 / elapsed } else { 0.0 };
 
-        if is_terminal::is_terminal(&std::io::stderr()) {
+        if is_terminal::is_terminal(std::io::stderr()) {
             eprint!(
                 "\r\x1b[KScanned: {} | Added: {} | Skipped dirs: {} | {:.0} files/s",
                 scanned, added, skipped, rate
             );
         } else {
-            if scanned % 10000 == 0 {
+            if scanned.is_multiple_of(10000) {
                 eprintln!(
                     "Scanned: {} | Added: {} | Skipped dirs: {} | {:.0} files/s",
                     scanned, added, skipped, rate
@@ -50,7 +50,7 @@ impl Progress {
 
     pub fn finish(&self) {
         self.running.store(false, Ordering::Relaxed);
-        if !self.quiet && is_terminal::is_terminal(&std::io::stderr()) {
+        if !self.quiet && is_terminal::is_terminal(std::io::stderr()) {
             eprintln!();
         }
     }

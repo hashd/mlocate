@@ -2,7 +2,7 @@ use std::io::Write;
 use std::process::{Command, Stdio};
 
 pub fn page_output(output: &str) -> anyhow::Result<()> {
-    if std::env::var("NOPAGER").is_ok() || !is_terminal::is_terminal(&std::io::stdout()) {
+    if std::env::var("NOPAGER").is_ok() || !is_terminal::is_terminal(std::io::stdout()) {
         print!("{}", output);
         return Ok(());
     }

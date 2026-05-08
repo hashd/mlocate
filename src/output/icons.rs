@@ -5,7 +5,7 @@ static NERD_FONT_AVAILABLE: OnceLock<bool> = OnceLock::new();
 
 pub fn detect_nerd_font() -> bool {
     *NERD_FONT_AVAILABLE.get_or_init(|| {
-        if !is_terminal::is_terminal(&std::io::stdout()) {
+        if !is_terminal::is_terminal(std::io::stdout()) {
             return false;
         }
         if std::env::var("TERM").unwrap_or_default() == "dumb" {
