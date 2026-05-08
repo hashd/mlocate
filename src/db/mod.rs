@@ -1,5 +1,6 @@
 pub mod schema;
 pub mod trigram;
+pub mod query;
 
 use crate::error::MlocateError;
 use duckdb::Connection;
