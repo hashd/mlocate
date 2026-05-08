@@ -1,49 +1,36 @@
 # mlocate
 
-A high-performance, metadata-aware alternative to GNU `locate` built with Rust and Roaring Bitmaps.
+[![CI](https://github.com/hashd/mlocate/actions/workflows/ci.yml/badge.svg)](https://github.com/hashd/mlocate/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+
+A fast, metadata-aware alternative to GNU `locate` — built in Rust with Roaring bitmaps.
+
+```bash
+$ mupdatedb --localpaths ~/projects
+$ mlocate budget.xlsx
+/Users/kiran/projects/finance/budget.xlsx
+
+$ mlocate -i -r readme --json
+[{"path":"/home/user/README.md","size":2048,"mtime":1715200000,...}]
+
+$ mlocate --size 1MB+ --modified 7d- -t "image/*" screenshot
+```
 
 ## Features
 
-### Search
-- **Fast trigram indexing** — Trigram-accelerated bitmap intersection; bigram fallback for 2-char patterns
-- **Regex-aware** — Regex patterns extract literals for trigram pre-filtering, avoiding full scans
-- **Metadata filters** — Search by file size, modification time, and MIME type (exact or glob)
-- **Streaming output** — Results streamed directly to stdout (no in-memory buffering)
-- **Rich output** — Modern table view, JSON, plain text, or NUL-terminated
+**Search**
+- Trigram-accelerated bitmap intersection for fast path lookups
+- Regex support with automatic literal extraction for trigram pre-filtering
+- Filter by file size (`--size 10MB+`), modification time (`--modified 7d-`), and MIME type (`-t image/*`)
+- Streaming output — results go straight to stdout, no buffering
+- Multiple output formats: JSON, table, plain text, NUL-terminated
 
-### Indexing (File Format v2)
-- **128-byte header** with feature flags, directory table offsets, and bitmap metadata
-- **Directory table** — Binary-searchable directory entries for `--incremental` updates
-- **Extension index** — Per-extension bitmaps for fast MIME-type filtering
-- **Bigram index** — 2-char pattern matching without full table scans
-- **CRC32 integrity** — Footer checksum validated on open; detects corruption and truncation
-- **Parallel indexing** — Multi-threaded filesystem crawler with optional magic-byte MIME detection
-- **Incremental updates** — Skips unchanged directories via stored mtime comparison
-- **Atomic index swap** — Writes to `.tmp` then atomically renames; crash-safe
-
-### Architecture
-- **Roaring compressed bitmaps** for memory-efficient document ID sets
-- **Memory-mapped I/O** via `memmap2` with SIGBUS handler for graceful crash recovery
-- **External merge sort** — Chunked writes to disk, K-way merged via binary heap for constant memory indexing
-- **Arc-based caching** — Shared bitmap references avoid repeated cloning in multi-pattern searches
-- **Batch trigram lookup** — Single directory traversal fetches all needed trigrams at once
-
-## Quick Start
-
-```bash
-# Index your files
-mupdatedb --localpaths /path/to/scan
-mupdatedb --localpaths /home    # with --no-magic-mime for speed
-
-# Search
-mlocate myfile
-mlocate -i "*.rs" --json
-mlocate --size 10MB+ --modified 7d- "report"
-mlocate -r '\.rs$'              # regex (trigram-accelerated via literal extraction)
-
-# Inspect
-mlocate --statistics             # database stats as JSON
-```
+**Indexing**
+- Parallel filesystem crawler with optional magic-byte MIME detection
+- External merge sort — constant-memory indexing via disk chunks and k-way merge
+- Incremental updates via directory mtime comparison
+- CRC32 integrity checks, atomic `.tmp` → rename, crash-safe writes
+- Memory-mapped reads with SIGBUS handling for graceful recovery
 
 ## Installation
 
@@ -58,27 +45,52 @@ cargo build --release
 ./target/release/mlocate --help
 ```
 
-## Components
+## Usage
 
-| Binary | Description |
-|--------|-------------|
-| `mlocate` | Search the indexed database with filters, regex, and formatted output |
-| `mupdatedb` | Build/update the file index database (parallel crawl + merge sort) |
+```bash
+# Build an index
+mupdatedb                          # defaults: /Users (macOS), /home /etc /usr /opt (Linux)
+mupdatedb --localpaths ~/projects  # index specific directories
+mupdatedb --force                  # full rebuild
 
-### Index file layout (v2)
+# Search
+mlocate readme                    # literal substring match
+mlocate -i README                 # case-insensitive
+mlocate -b readme                 # match filename only
+mlocate -r '\.rs$'                # regex (trigram-accelerated)
+mlocate -c "*.log"                # count matches
+mlocate -0 "*.tmp" | xargs -0 rm  # pipe to xargs
+```
 
-| Section | Description |
-|---------|-------------|
-| Header (128 bytes) | Magic bytes, version, feature flags, section offsets |
-| Config (zstd JSON) | Indexed/pruned paths, hostname, timestamp |
-| File directory | Path, size, mtime, mode, MIME type per file |
-| File offset directory | 8-byte offsets into the file directory (binary search compat) |
-| Trigram directory | Sorted `[3-byte key][8-byte offset][4-byte length]` entries |
-| Bigram directory | Sorted `[2-byte key][8-byte offset][4-byte length]` entries |
-| Extension directory | Sorted `[8-byte key][8-byte offset][4-byte length]` entries |
-| Dir table | Sorted directory entries (path, mtime, ino, file range) |
-| Bitmap data | Roaring-compressed document ID bitmaps |
-| CRC32 footer (4 bytes) | Integrity checksum of all preceding bytes |
+**Filters**
+
+```bash
+mlocate --size 10MB+ report        # >= 10 MB
+mlocate --size 1KB- notes          # <= 1 KB
+mlocate --modified 7d- config      # modified within 7 days
+mlocate --modified 2h+ log         # older than 2 hours
+mlocate -t text/plain doc          # exact MIME type
+mlocate -t "image/*" screenshot    # MIME glob
+```
+
+See [USAGE.md](USAGE.md) for the full flag reference, filter syntax, shell completions, and exit codes.
+
+## Database
+
+| Platform | Default path |
+|----------|-------------|
+| macOS    | `~/Library/Caches/mlocate/mlocate.db` |
+| Linux    | `~/.cache/mlocate/mlocate.db` |
+
+Override with `--database` on either binary. Inspect with `mlocate --statistics`.
+
+## GNU Compatibility
+
+Pass `--gnu` to accept GNU `locate` flags (`-L`, `-A`, `-w`, `-P`, `-H`) with warnings instead of errors.
+
+## Architecture
+
+mlocate uses a custom binary format with Roaring-compressed inverted indexes. File paths are decomposed into trigrams at index time and stored in sorted directory entries for binary search. Queries intersect trigram bitmaps to find candidate files, then apply substring/regex post-filters, filters, and `--existing` checks — all streaming to stdout without intermediate collections. The index is memory-mapped for zero-copy reads and protected by a CRC32 footer and a lock file to prevent concurrent writes.
 
 ## License
 
