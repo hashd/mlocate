@@ -15,7 +15,7 @@ pub fn detect_nerd_font() -> bool {
     })
 }
 
-pub fn get_icon(path: &str, mime_type: &str) -> String {
+pub fn get_icon(path: &str, _mime_type: &str) -> String {
     let p = Path::new(path);
     let has_nerd = detect_nerd_font();
 
