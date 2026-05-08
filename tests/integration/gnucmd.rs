@@ -5,6 +5,24 @@ fn mlocate_bin() -> String {
         .unwrap_or_else(|_| "target/debug/mlocate".to_string())
 }
 
+fn mupdatedb_bin() -> String {
+    std::env::var("CARGO_BIN_EXE_mupdatedb")
+        .unwrap_or_else(|_| "target/debug/mupdatedb".to_string())
+}
+
+fn setup_test_db(dir: &std::path::Path, db: &std::path::Path) {
+    std::fs::write(dir.join("test_file.txt"), "test content").unwrap();
+    let output = Command::new(mupdatedb_bin())
+        .arg("--localpaths")
+        .arg(dir)
+        .arg("--database")
+        .arg(db)
+        .arg("--quiet")
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "mupdatedb failed: {:?}", output);
+}
+
 #[test]
 fn test_gnu_mode_plain_output() {
     let output = Command::new(mlocate_bin())
