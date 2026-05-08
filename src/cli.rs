@@ -118,11 +118,11 @@ pub struct SearchCli {
 #[derive(Args)]
 pub struct UpdateArgs {
     /// Root directories to scan. Repeatable.
-    #[arg(long = "localpaths")]
+    #[arg(long = "localpaths", num_args(1..))]
     pub localpaths: Vec<String>,
 
     /// Paths to exclude from scan. Repeatable. Matched against canonical path.
-    #[arg(long = "prunepaths")]
+    #[arg(long = "prunepaths", num_args(1..))]
     pub prunepaths: Vec<String>,
 
     /// Skip subtrees with unchanged directory mtime (requires existing index).
