@@ -113,3 +113,15 @@ pub fn cleanup_stale_tmp(db_dir: &str) -> Result<(), MlocateError> {
     }
     Ok(())
 }
+
+pub fn atomic_swap(tmp_path: &str, final_path: &str) -> Result<(), MlocateError> {
+    let db_dir = std::path::Path::new(tmp_path)
+        .parent()
+        .and_then(|p| p.to_str())
+        .unwrap_or(".");
+
+    cleanup_stale_tmp(db_dir)?;
+    retry_checkpoint_wal(tmp_path, 3)?;
+    rename_atomic(tmp_path, final_path)?;
+    Ok(())
+}
