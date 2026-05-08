@@ -77,8 +77,7 @@ fn main() -> anyhow::Result<()> {
 
     mlocate::platform::ensure_cache_dir(&final_db)?;
 
-    let db_dir = final_db_path.parent().and_then(|p| p.to_str()).unwrap_or(".");
-    let _ = mlocate::platform::cleanup_stale_tmp(db_dir);
+    let _ = mlocate::platform::cleanup_stale_tmp(&final_db);
 
     let parallel = cli.args.parallel.unwrap_or_else(mlocate::platform::default_parallel);
 
@@ -112,7 +111,10 @@ fn main() -> anyhow::Result<()> {
     let is_dry_run = cli.args.dry_run;
 
     if is_dry_run {
-        for _ in extract_rx {}
+        let mut extracted_count = 0u64;
+        for _ in extract_rx {
+            extracted_count += 1;
+        }
         crawl_handle.join().ok();
         for h in extractor_handles {
             h.join().ok();
@@ -121,8 +123,8 @@ fn main() -> anyhow::Result<()> {
         if !cli.args.quiet {
             let scanned = crawl_stats.files_scanned.load(Ordering::Relaxed);
             eprintln!(
-                "Dry run completed: {} files would be indexed.\nPaths: {:?}\nPrune: {:?}",
-                scanned, localpaths, prunepaths,
+                "Dry run completed: {} files scanned, {} entries extracted.\nPaths: {:?}\nPrune: {:?}",
+                scanned, extracted_count, localpaths, prunepaths,
             );
         }
         return Ok(());

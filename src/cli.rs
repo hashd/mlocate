@@ -33,7 +33,7 @@ pub struct SearchCli {
     pub count: bool,
 
     /// NUL-terminated output (for xargs -0).
-    #[arg(short = '0', long = "null", conflicts_with = "plain")]
+    #[arg(short = '0', long = "null", conflicts_with_all = ["table", "json", "plain"])]
     pub null: bool,
 
     /// Filter by file size. Format: <value><unit><suffix>. Examples: '10MB+', '1KB-', '500MB'.

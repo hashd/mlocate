@@ -79,12 +79,7 @@ pub fn walk_paths(
                         };
 
                         if file_type.is_dir() {
-                            let canonical = match path.canonicalize() {
-                                Ok(c) => c,
-                                Err(_) => return WalkState::Continue,
-                            };
-
-                            if prunes.iter().any(|p| canonical.starts_with(p)) {
+                            if prunes.iter().any(|p| path.starts_with(p)) {
                                 return WalkState::Skip;
                             }
 
@@ -117,14 +112,18 @@ pub fn walk_paths(
                         }
 
                         if file_type.is_file() || file_type.is_symlink() {
-                            let canonical = match path.canonicalize() {
-                                Ok(c) => c,
-                                Err(_) => return WalkState::Continue,
+                            let resolved = if file_type.is_symlink() {
+                                match path.canonicalize() {
+                                    Ok(c) => c,
+                                    Err(_) => return WalkState::Continue,
+                                }
+                            } else {
+                                path
                             };
-                            if prunes.iter().any(|p| canonical.starts_with(p)) {
+                            if prunes.iter().any(|p| resolved.starts_with(p)) {
                                 return WalkState::Continue;
                             }
-                            if let Some(path_str) = canonical.to_str() {
+                            if let Some(path_str) = resolved.to_str() {
                                 let _ = crawl_tx.send(PathBuf::from(path_str));
                                 stats.files_added.fetch_add(1, Ordering::Relaxed);
                             }

@@ -99,7 +99,7 @@ pub fn set_niceness() {
             thread_policy_set(
                 thread,
                 THREAD_BACKGROUND_POLICY,
-                &mut policy as *mut _ as *mut std::ffi::c_int,
+                std::ptr::from_mut(&mut policy).cast::<std::ffi::c_int>(),
                 THREAD_BACKGROUND_POLICY_COUNT,
             );
             mach_port_deallocate(mach_task_self(), thread);
@@ -124,8 +124,8 @@ pub fn default_parallel() -> usize {
         .min(4)
 }
 
-pub fn cleanup_stale_tmp(db_dir: &str) -> Result<(), std::io::Error> {
-    let tmp_db = format!("{}/mlocate.db.tmp", db_dir);
+pub fn cleanup_stale_tmp(db_path: &str) -> Result<(), std::io::Error> {
+    let tmp_db = tmp_db_path(Some(db_path));
     if std::path::Path::new(&tmp_db).exists() {
         std::fs::remove_file(&tmp_db)?;
     }

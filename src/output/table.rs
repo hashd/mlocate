@@ -42,7 +42,7 @@ pub fn render_table(
 
     for r in results {
         let icon_str = if icons {
-            super::icons::get_icon(&r.full_path, &r.mime_type)
+            super::icons::get_icon(&r.full_path)
         } else {
             String::new()
         };
@@ -94,7 +94,7 @@ fn render_narrow(results: &[TableResult], icons: bool, use_color: bool) -> Strin
     let mut output = String::new();
     for r in results {
         let icon_str = if icons {
-            super::icons::get_icon(&r.full_path, &r.mime_type)
+            super::icons::get_icon(&r.full_path)
         } else {
             String::new()
         };
@@ -115,15 +115,16 @@ fn format_path(path: &str, max_width: usize) -> String {
     if path.len() <= max_width {
         return path.to_string();
     }
-    let filename = std::path::Path::new(path)
-        .file_name()
-        .and_then(|n| n.to_str())
-        .unwrap_or(path);
-    if filename.len() >= max_width - 3 {
+    let (dir, filename) = path.rsplit_once('/').unwrap_or(("", path));
+    if filename.len() >= max_width {
         return filename.to_string();
     }
-    let prefix_len = max_width - 3 - filename.len() - 1;
-    format!("...{}/{}", &path[path.len() - prefix_len - filename.len() - 1..path.len() - filename.len() - 1], filename)
+    let available = max_width - filename.len() - 1;
+    if available <= 4 {
+        return filename.to_string();
+    }
+    let dir_trim = dir.len().saturating_sub(available - 3);
+    format!("...{}/{}", &dir[dir_trim..], filename)
 }
 
 fn to_comfy_color(c: colored::Color) -> comfy_table::Color {

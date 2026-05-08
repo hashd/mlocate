@@ -229,6 +229,13 @@ impl IndexWriter {
         self.write_to(&mut buf, config)?;
         Ok(buf.into_inner())
     }
+
+    pub fn drain(&mut self) -> (Vec<u8>, Vec<u64>) {
+        let data = std::mem::take(self.file_dir_buf.get_mut());
+        let offsets = std::mem::take(&mut self.file_offsets);
+        self.file_dir_buf = io::Cursor::new(Vec::new());
+        (data, offsets)
+    }
 }
 
 pub struct IndexReader<'a> {
@@ -312,8 +319,12 @@ impl<'a> IndexReader<'a> {
                 std::cmp::Ordering::Equal => {
                     let entry = TrigramEntry::from_bytes(entry_bytes);
                     let bm_start = self.header.bitmap_data_offset as usize + entry.bitmap_offset as usize;
-                    let bm_data = &self.data[bm_start..bm_start + entry.bitmap_len as usize];
-                    return Some(RoaringBitmap::deserialize_from(bm_data).unwrap_or_default());
+                    let bm_end = bm_start + entry.bitmap_len as usize;
+                    if bm_end > self.data.len() {
+                        return None;
+                    }
+                    let bm_data = &self.data[bm_start..bm_end];
+                    return RoaringBitmap::deserialize_from(bm_data).ok();
                 }
             }
         }

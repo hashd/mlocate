@@ -78,6 +78,9 @@ fn main() -> anyhow::Result<()> {
     };
 
     if cli.schema {
+        if !cli.patterns.is_empty() {
+            eprintln!("Warning: --schema ignores search patterns.");
+        }
         let file_count = reader.num_files() as i64;
         let db_size = std::fs::metadata(&db_path).map(|m| m.len()).unwrap_or(0);
         let last_idx = match reader.config() {
@@ -180,7 +183,7 @@ fn main() -> anyhow::Result<()> {
         let paths: Vec<String> = results.iter().map(|r| r.full_path.clone()).collect();
         let bytes = output::plain::render_null(&paths);
         std::io::Write::write_all(&mut std::io::stdout(), &bytes)?;
-    } else if cli.plain || cli.gnu {
+    } else if cli.plain {
         let paths: Vec<String> = results.iter().map(|r| r.full_path.clone()).collect();
         println!("{}", output::plain::render_plain(&paths));
     } else if cli.table || is_terminal::is_terminal(std::io::stdout()) {
@@ -195,6 +198,9 @@ fn main() -> anyhow::Result<()> {
             .collect();
         let table_output = output::table::render_table(&table_results, cli.icons, use_color);
         output::pager::page_output(&table_output)?;
+    } else if cli.gnu {
+        let paths: Vec<String> = results.iter().map(|r| r.full_path.clone()).collect();
+        println!("{}", output::plain::render_plain(&paths));
     } else {
         let paths: Vec<String> = results.iter().map(|r| r.full_path.clone()).collect();
         println!("{}", output::plain::render_plain(&paths));

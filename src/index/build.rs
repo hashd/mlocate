@@ -36,7 +36,7 @@ pub fn build_index(
     for (i, entry) in entries.iter().enumerate() {
         let doc_id = writer.add_file(
             &entry.full_path,
-            entry.size.max(0) as u64,
+            entry.size,
             entry.mtime,
             entry.mode as u32,
             &entry.mime_type,
@@ -139,7 +139,6 @@ mod tests {
             mtime: 1746720000,
             mode: 0o644,
             mime_type: "text/x-rust".into(),
-            dir_path: "/tmp/a".into(),
         }).unwrap();
         tx.send(FileEntry {
             full_path: "/tmp/a/world.md".into(),
@@ -147,7 +146,6 @@ mod tests {
             mtime: 1746720100,
             mode: 0o644,
             mime_type: "text/markdown".into(),
-            dir_path: "/tmp/a".into(),
         }).unwrap();
         drop(tx);
 
@@ -186,7 +184,6 @@ mod tests {
             mtime: 0,
             mode: 0,
             mime_type: "text/plain".into(),
-            dir_path: "/".into(),
         };
         tx.send(entry.clone()).unwrap();
         entry.size = 999;

@@ -1,4 +1,7 @@
 pub fn generate_trigrams(path: &str) -> Vec<String> {
+    if path.is_empty() {
+        return vec!["___".to_string()];
+    }
     let s = if path.len() < 3 {
         let padded = format!("_{}_", path);
         padded.chars().take(3).collect::<String>()

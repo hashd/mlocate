@@ -109,7 +109,7 @@ pub fn parse_mime_type(input: &str) -> Result<MimeFilter, MlocateError> {
         return Err(MlocateError::InvalidMimeType { input: input.to_string() });
     }
     if input.contains('*') {
-        if !input.contains('/') || input.matches('*').count() > 1 {
+        if !input.contains('/') || input.chars().filter(|&c| c == '*').count() > 1 {
             return Err(MlocateError::InvalidMimeType { input: input.to_string() });
         }
         Ok(MimeFilter { pattern: input.to_string(), is_glob: true })

@@ -4,21 +4,20 @@ use std::path::PathBuf;
 #[derive(Debug, Clone)]
 pub struct FileEntry {
     pub full_path: String,
-    pub size: i64,
+    pub size: u64,
     pub mtime: i64,
     pub mode: i32,
     pub mime_type: String,
-    pub dir_path: String,
 }
 
-pub fn channel_sizes(extractor_threads: usize, _batch_size: usize) -> (usize, usize) {
+pub fn channel_sizes(extractor_threads: usize) -> (usize, usize) {
     let crawl_to_extract = extractor_threads * 500;
     let extract_to_batch = extractor_threads * 2000;
     (crawl_to_extract, extract_to_batch)
 }
 
-pub fn create_channels(extractor_threads: usize, batch_size: usize) -> (Sender<PathBuf>, Receiver<PathBuf>, Sender<FileEntry>, Receiver<FileEntry>) {
-    let (crawl_size, extract_size) = channel_sizes(extractor_threads, batch_size);
+pub fn create_channels(extractor_threads: usize, _batch_size: usize) -> (Sender<PathBuf>, Receiver<PathBuf>, Sender<FileEntry>, Receiver<FileEntry>) {
+    let (crawl_size, extract_size) = channel_sizes(extractor_threads);
     let (crawl_tx, crawl_rx) = bounded::<PathBuf>(crawl_size);
     let (extract_tx, extract_rx) = bounded::<FileEntry>(extract_size);
     (crawl_tx, crawl_rx, extract_tx, extract_rx)
@@ -29,42 +28,36 @@ pub fn run_extractor(
     tx: Sender<FileEntry>,
 ) {
     while let Ok(path) = rx.recv() {
-        let entry = extract_metadata(&path);
-        if tx.send(entry).is_err() {
-            break;
+        if let Some(entry) = extract_metadata(&path) {
+            if tx.send(entry).is_err() {
+                break;
+            }
         }
     }
 }
 
-fn extract_metadata(path: &std::path::Path) -> FileEntry {
-    let (size, mtime, mode) = match std::fs::metadata(path) {
-        Ok(meta) => {
-            use std::os::unix::fs::MetadataExt;
-            (
-                meta.len() as i64,
-                meta.mtime(),
-                meta.mode() as i32,
-            )
-        }
-        Err(_) => (0i64, 0i64, 0i32),
+fn extract_metadata(path: &std::path::Path) -> Option<FileEntry> {
+    let meta = match std::fs::metadata(path) {
+        Ok(meta) => meta,
+        Err(_) => return None,
     };
+
+    use std::os::unix::fs::MetadataExt;
+    let size = meta.len();
+    let mtime = meta.mtime();
+    let mode = meta.mode() as i32;
 
     let mime_type = detect_mime(path);
 
     let full_path = path.to_string_lossy().to_string();
-    let dir_path = path
-        .parent()
-        .map(|p| p.to_string_lossy().to_string())
-        .unwrap_or_default();
 
-    FileEntry {
+    Some(FileEntry {
         full_path,
         size,
         mtime,
         mode,
         mime_type,
-        dir_path,
-    }
+    })
 }
 
 fn detect_mime(path: &std::path::Path) -> String {
@@ -74,25 +67,16 @@ fn detect_mime(path: &std::path::Path) -> String {
     }
 
     if path.extension().is_none() {
-        let path_buf = path.to_path_buf();
-        let handle = std::thread::spawn(move || {
-            let mut buf = vec![0u8; 4096];
-            match std::fs::File::open(&path_buf) {
-                Ok(mut file) => {
-                    use std::io::Read;
-                    let bytes_read = file.read(&mut buf).unwrap_or(0);
-                    if bytes_read > 0 {
-                        buf.truncate(bytes_read);
-                        infer::get(&buf).map(|k| k.mime_type().to_string())
-                    } else {
-                        None
-                    }
+        let mut buf = vec![0u8; 512];
+        if let Ok(mut file) = std::fs::File::open(path) {
+            use std::io::Read;
+            let bytes_read = file.read(&mut buf).unwrap_or(0);
+            if bytes_read > 0 {
+                buf.truncate(bytes_read);
+                if let Some(kind) = infer::get(&buf) {
+                    return kind.mime_type().to_string();
                 }
-                Err(_) => None,
             }
-        });
-        if let Ok(Some(mime)) = handle.join() {
-            return mime;
         }
     }
 

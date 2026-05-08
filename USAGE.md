@@ -48,9 +48,9 @@ mlocate [OPTIONS] [PATTERNS...]
 
 | Flag | Description |
 |------|-------------|
-| `-i`, `--ignore-case` | Case-insensitive matching (ASCII) |
+| `-i`, `--ignore-case` | Case-insensitive matching. Case folding is ASCII-only. Non-ASCII characters in paths are matched as-is. |
 | `-b`, `--basename` | Match pattern against filename only |
-| `-r`, `--regex` | Treat pattern as regex |
+| `-r`, `--regex` | Treat pattern as regex. Note: regex search does a full scan (not trigram-accelerated) and will be slower for large databases. |
 | `-e`, `--existing` | Only show files currently on disk |
 | `-l`, `--limit <N>` | Cap results to N entries |
 | `-c`, `--count` | Print match count instead of results |
@@ -163,6 +163,8 @@ The database is stored at:
 - **Linux**: `~/.cache/mlocate/mlocate.db`
 
 Override with `--database` on either command.
+
+> **Note:** The database is memory-mapped for performance. If the file is truncated while mlocate is running, it will crash with SIGBUS. This is rare but can happen if an external process modifies the database during a search.
 
 ```bash
 # Inspect database schema and stats

@@ -1,5 +1,6 @@
-use std::collections::HashSet;
+use std::collections::HashMap;
 use regex::Regex;
+use roaring::RoaringBitmap;
 
 use crate::error::MlocateError;
 use crate::filter::{CmpOp, MimeFilter, ModifiedFilter, SizeFilter};
@@ -25,12 +26,13 @@ pub struct SearchFilters {
 
 pub struct SearchResults<'a> {
     reader: &'a IndexReader<'a>,
-    candidate_ids: Vec<u32>,
+    candidate_ids: RoaringBitmap,
     patterns: Vec<String>,
     options: SearchOptions,
     filters: SearchFilters,
     position: usize,
     emitted: usize,
+    now: i64,
 }
 
 impl<'a> Iterator for SearchResults<'a> {
@@ -38,7 +40,7 @@ impl<'a> Iterator for SearchResults<'a> {
 
     fn next(&mut self) -> Option<Self::Item> {
         loop {
-            if self.position >= self.candidate_ids.len() {
+            if self.position >= self.candidate_ids.len() as usize {
                 return None;
             }
             if let Some(limit) = self.options.limit {
@@ -47,7 +49,7 @@ impl<'a> Iterator for SearchResults<'a> {
                 }
             }
 
-            let doc_id = self.candidate_ids[self.position];
+            let doc_id = self.candidate_ids.select(self.position as u32)?;
             self.position += 1;
 
             let entry = match self.reader.file_entry(doc_id) {
@@ -59,7 +61,7 @@ impl<'a> Iterator for SearchResults<'a> {
                 continue;
             }
 
-            if !filter_matches(&entry, &self.filters) {
+            if !filter_matches(&entry, &self.filters, self.now) {
                 continue;
             }
 
@@ -90,7 +92,7 @@ fn path_matches(path: &str, pattern: &str, opts: &SearchOptions) -> bool {
     }
 }
 
-fn filter_matches(entry: &DiskFileEntry, filters: &SearchFilters) -> bool {
+fn filter_matches(entry: &DiskFileEntry, filters: &SearchFilters, now: i64) -> bool {
     if let Some(ref sf) = filters.size {
         let ok = match sf.operator {
             CmpOp::Eq => entry.size == sf.bytes,
@@ -101,7 +103,7 @@ fn filter_matches(entry: &DiskFileEntry, filters: &SearchFilters) -> bool {
     }
 
     if let Some(ref mf) = filters.modified {
-        let cutoff = chrono::Utc::now().timestamp() - mf.seconds;
+        let cutoff = now - mf.seconds;
         let ok = match mf.operator {
             CmpOp::Ge => entry.mtime >= cutoff,
             CmpOp::Le => entry.mtime <= cutoff,
@@ -129,19 +131,24 @@ pub fn search<'a>(
     options: &SearchOptions,
     filters: &SearchFilters,
 ) -> Result<SearchResults<'a>, MlocateError> {
+    let now = chrono::Utc::now().timestamp();
+
+    let empty_result = SearchResults {
+        reader,
+        candidate_ids: RoaringBitmap::new(),
+        patterns: patterns.to_vec(),
+        options: options.clone(),
+        filters: filters.clone(),
+        position: 0,
+        emitted: 0,
+        now,
+    };
+
     if reader.num_files() == 0 {
-        return Ok(SearchResults {
-            reader,
-            candidate_ids: Vec::new(),
-            patterns: patterns.to_vec(),
-            options: options.clone(),
-            filters: filters.clone(),
-            position: 0,
-            emitted: 0,
-        });
+        return Ok(empty_result);
     }
 
-    let candidate_ids: Vec<u32> = if options.regex {
+    let candidate_ids: RoaringBitmap = if options.regex {
         let regexes: Vec<Regex> = patterns.iter().map(|p| {
             let pattern = if options.ignore_case {
                 format!("(?i){}", p)
@@ -151,7 +158,7 @@ pub fn search<'a>(
             Regex::new(&pattern).map_err(|e| MlocateError::Other(format!("Invalid regex '{}': {}", p, e)))
         }).collect::<Result<Vec<_>, _>>()?;
 
-        let mut ids = Vec::new();
+        let mut bm = RoaringBitmap::new();
         for i in 0..reader.num_files() as u32 {
             let path = reader.file_path(i).map_err(|e| MlocateError::IndexFormatError { details: e })?;
             let target = if options.basename {
@@ -163,19 +170,20 @@ pub fn search<'a>(
                 &path
             };
             if regexes.iter().any(|r| r.is_match(target)) {
-                ids.push(i);
+                bm.insert(i);
             }
             if let Some(limit) = options.limit {
-                if ids.len() >= limit {
+                if bm.len() as usize >= limit {
                     break;
                 }
             }
         }
-        ids
+        bm
     } else if patterns.is_empty() {
         (0..reader.num_files() as u32).collect()
     } else {
-        let mut candidates: Option<HashSet<u32>> = None;
+        let mut trigram_cache: HashMap<[u8; 3], RoaringBitmap> = HashMap::new();
+        let mut candidates: Option<RoaringBitmap> = None;
         let mut attempted_trigrams = false;
 
         for pattern in patterns {
@@ -189,38 +197,37 @@ pub fn search<'a>(
 
             attempted_trigrams = true;
 
-            let mut pattern_and: Option<Vec<u32>> = None;
+            let mut pattern_and: Option<RoaringBitmap> = None;
             for tri in &tris {
                 let key = trigram::trigram_to_bytes(tri);
-                if let Some(bm) = reader.trigram_bitmap(key) {
-                    let ids: Vec<u32> = bm.iter().collect();
-                    pattern_and = match pattern_and {
-                        None => Some(ids),
-                        Some(existing) => {
-                            let set: HashSet<u32> = existing.into_iter().collect();
-                            Some(ids.into_iter().filter(|id| set.contains(id)).collect())
-                        }
-                    };
-                }
+                let bm = match trigram_cache.get(&key) {
+                    Some(bm) => bm.clone(),
+                    None => {
+                        let bm = reader.trigram_bitmap(key).unwrap_or_default();
+                        trigram_cache.insert(key, bm.clone());
+                        bm
+                    }
+                };
+                pattern_and = match pattern_and {
+                    None => Some(bm),
+                    Some(existing) => Some(existing & bm),
+                };
             }
 
             if let Some(ids) = pattern_and {
-                let mut union = candidates.unwrap_or_default();
-                for id in ids {
-                    union.insert(id);
-                }
-                candidates = Some(union);
+                candidates = match candidates {
+                    None => Some(ids),
+                    Some(existing) => Some(existing | ids),
+                };
             }
         }
 
         if !attempted_trigrams {
-            let all_ids: HashSet<u32> = (0..reader.num_files() as u32).collect();
-            candidates = Some(all_ids);
+            let all: RoaringBitmap = (0..reader.num_files() as u32).collect();
+            candidates = Some(all);
         }
 
-        let mut ids: Vec<u32> = candidates.unwrap_or_default().into_iter().collect();
-        ids.sort_unstable();
-        ids
+        candidates.unwrap_or_default()
     };
 
     Ok(SearchResults {
@@ -231,6 +238,7 @@ pub fn search<'a>(
         filters: filters.clone(),
         position: 0,
         emitted: 0,
+        now,
     })
 }
 
