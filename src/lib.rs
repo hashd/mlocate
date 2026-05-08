@@ -5,5 +5,6 @@ pub mod error;
 pub mod filter;
 pub mod pipeline;
 pub mod platform;
+pub mod progress;
 
 pub use error::{MlocateError, Result};
