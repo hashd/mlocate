@@ -26,9 +26,10 @@ pub fn create_channels(extractor_threads: usize, _batch_size: usize) -> (Sender<
 pub fn run_extractor(
     rx: Receiver<PathBuf>,
     tx: Sender<FileEntry>,
+    skip_magic: bool,
 ) {
     while let Ok(path) = rx.recv() {
-        if let Some(entry) = extract_metadata(&path) {
+        if let Some(entry) = extract_metadata(&path, skip_magic) {
             if tx.send(entry).is_err() {
                 break;
             }
@@ -36,7 +37,7 @@ pub fn run_extractor(
     }
 }
 
-fn extract_metadata(path: &std::path::Path) -> Option<FileEntry> {
+fn extract_metadata(path: &std::path::Path, skip_magic: bool) -> Option<FileEntry> {
     let meta = match std::fs::metadata(path) {
         Ok(meta) => meta,
         Err(_) => return None,
@@ -47,7 +48,7 @@ fn extract_metadata(path: &std::path::Path) -> Option<FileEntry> {
     let mtime = meta.mtime();
     let mode = meta.mode();
 
-    let mime_type = detect_mime(path);
+    let mime_type = detect_mime(path, skip_magic);
 
     let full_path = path.to_string_lossy().to_string();
 
@@ -60,13 +61,13 @@ fn extract_metadata(path: &std::path::Path) -> Option<FileEntry> {
     })
 }
 
-fn detect_mime(path: &std::path::Path) -> String {
+fn detect_mime(path: &std::path::Path, skip_magic: bool) -> String {
     let guessed = mime_guess::from_path(path).first_or_octet_stream();
     if guessed.essence_str() != "application/octet-stream" {
         return guessed.essence_str().to_string();
     }
 
-    if path.extension().is_none() {
+    if path.extension().is_none() && !skip_magic {
         let mut buf = vec![0u8; 512];
         if let Ok(mut file) = std::fs::File::open(path) {
             use std::io::Read;

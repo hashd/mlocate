@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::sync::Arc;
 use regex::Regex;
 use roaring::RoaringBitmap;
 
@@ -86,17 +87,12 @@ fn path_matches(path: &str, pattern: &str, opts: &SearchOptions) -> bool {
     };
 
     if opts.ignore_case {
-        let folded_target = casefold(target);
-        let folded_pat = casefold(pattern);
+        let folded_target = trigram::casefold(target);
+        let folded_pat = trigram::casefold(pattern);
         folded_target.contains(&folded_pat)
     } else {
         target.contains(pattern)
     }
-}
-
-fn casefold(s: &str) -> String {
-    let normalized = unicode_normalization::UnicodeNormalization::nfc(s);
-    caseless::default_case_fold_str(&normalized.collect::<String>())
 }
 
 fn filter_matches(entry: &DiskFileEntry, filters: &SearchFilters, now: i64) -> bool {
@@ -181,44 +177,27 @@ fn trigram_search(
     options: &SearchOptions,
     _filters: &SearchFilters,
 ) -> Result<RoaringBitmap, MlocateError> {
-    let mut trigram_cache: HashMap<[u8; 3], RoaringBitmap> = HashMap::new();
-    let mut bigram_cache: HashMap<[u8; 2], RoaringBitmap> = HashMap::new();
     let mut candidates: Option<RoaringBitmap> = None;
     let mut attempted = false;
 
+    // Collect all trigram keys needed across all patterns
+    let mut all_trigram_keys: Vec<[u8; 3]> = Vec::new();
+    let mut all_bigram_keys: Vec<[u8; 2]> = Vec::new();
+    let mut pattern_trigrams: Vec<Vec<[u8; 3]>> = Vec::new();
+    let mut pattern_bigrams: Vec<Vec<[u8; 2]>> = Vec::new();
+
     for pattern in patterns {
-        let tris = if options.ignore_case {
-            trigram::generate_trigrams_lowercase(pattern)
-        } else {
-            trigram::generate_trigrams(pattern)
-        };
-
-        if !tris.is_empty() && pattern.len() >= 3 {
+        if pattern.len() >= 3 {
             attempted = true;
-
-            let mut pattern_and: Option<RoaringBitmap> = None;
-            for tri in &tris {
-                let key = trigram::trigram_to_bytes(tri);
-                let bm = match trigram_cache.get(&key) {
-                    Some(bm) => bm.clone(),
-                    None => {
-                        let bm = reader.trigram_bitmap(key).unwrap_or_default();
-                        trigram_cache.insert(key, bm.clone());
-                        bm
-                    }
-                };
-                pattern_and = match pattern_and {
-                    None => Some(bm),
-                    Some(existing) => Some(existing & bm),
-                };
-            }
-
-            if let Some(ids) = pattern_and {
-                candidates = match candidates {
-                    None => Some(ids),
-                    Some(existing) => Some(existing | ids),
-                };
-            }
+            let tris = if options.ignore_case {
+                trigram::generate_trigrams_lowercase(pattern)
+            } else {
+                trigram::generate_trigrams(pattern)
+            };
+            let keys: Vec<[u8; 3]> = tris.iter().map(|t| trigram::trigram_to_bytes(t)).collect();
+            all_trigram_keys.extend(keys.clone());
+            pattern_trigrams.push(keys);
+            pattern_bigrams.push(Vec::new());
         } else if pattern.len() == 2 {
             attempted = true;
             let bis = if options.ignore_case {
@@ -226,35 +205,72 @@ fn trigram_search(
             } else {
                 trigram::generate_bigrams(pattern)
             };
+            let keys: Vec<[u8; 2]> = bis.iter().map(|b| trigram::bigram_to_bytes(b)).collect();
+            all_bigram_keys.extend(keys.clone());
+            pattern_bigrams.push(keys);
+            pattern_trigrams.push(Vec::new());
+        } else {
+            pattern_trigrams.push(Vec::new());
+            pattern_bigrams.push(Vec::new());
+        }
+    }
 
-            if !bis.is_empty() {
-                let mut pattern_and: Option<RoaringBitmap> = None;
-                for bi in &bis {
-                    let key = trigram::bigram_to_bytes(bi);
-                    let bm = match bigram_cache.get(&key) {
-                        Some(bm) => bm.clone(),
-                        None => {
-                            let bm = reader.bigram_bitmap(key).unwrap_or_default();
-                            bigram_cache.insert(key, bm.clone());
-                            bm
-                        }
-                    };
-                    pattern_and = match pattern_and {
-                        None => Some(bm),
-                        Some(existing) => Some(existing & bm),
-                    };
-                }
+    // Batch-fetch all trigram bitmaps in one directory traversal
+    let mut trigram_results: HashMap<[u8; 3], Arc<RoaringBitmap>> = HashMap::new();
+    if !all_trigram_keys.is_empty() {
+        let mut batch_raw: HashMap<[u8; 3], RoaringBitmap> = HashMap::new();
+        reader.trigram_bitmaps_batch(&all_trigram_keys, &mut batch_raw);
+        for (k, v) in batch_raw {
+            trigram_results.insert(k, Arc::new(v));
+        }
+    }
 
-                if let Some(ids) = pattern_and {
-                    candidates = match candidates {
-                        None => Some(ids),
-                        Some(existing) => Some(existing | ids),
-                    };
-                }
+    // Batch-fetch all bigram bitmaps
+    let mut bigram_results: HashMap<[u8; 2], Arc<RoaringBitmap>> = HashMap::new();
+    for key in &all_bigram_keys {
+        if let Some(bm) = reader.bigram_bitmap(*key) {
+            bigram_results.insert(*key, Arc::new(bm));
+        }
+    }
+
+    // Process each pattern with pre-fetched bitmaps
+    for (tris_keys, bis_keys) in pattern_trigrams.iter().zip(pattern_bigrams.iter()) {
+        if !tris_keys.is_empty() {
+            let mut pattern_and: Option<RoaringBitmap> = None;
+            for key in tris_keys {
+                let bm = trigram_results.get(key).cloned().unwrap_or_default();
+                pattern_and = match pattern_and {
+                    None => Some((*bm).clone()),
+                    Some(existing) => Some(existing & &*bm),
+                };
+            }
+            if let Some(ids) = pattern_and {
+                candidates = match candidates {
+                    None => Some(ids),
+                    Some(existing) => Some(existing | ids),
+                };
+            }
+        } else if !bis_keys.is_empty() {
+            let mut pattern_and: Option<RoaringBitmap> = None;
+            for key in bis_keys {
+                let bm = bigram_results.get(key).cloned().unwrap_or_default();
+                pattern_and = match pattern_and {
+                    None => Some((*bm).clone()),
+                    Some(existing) => Some(existing & &*bm),
+                };
+            }
+            if let Some(ids) = pattern_and {
+                candidates = match candidates {
+                    None => Some(ids),
+                    Some(existing) => Some(existing | ids),
+                };
             }
         }
     }
 
+    // For single-character patterns (no trigrams or bigrams generated),
+    // fall through to a linear scan of all document IDs.
+    // This is O(n) but single-char searches cannot be accelerated by trigram indexing.
     if !attempted {
         let all: RoaringBitmap = (0..reader.num_files() as u32).collect();
         candidates = Some(all);
@@ -281,7 +297,16 @@ fn extract_regex_literals(pattern: &str) -> Vec<String> {
     if current.len() >= 2 {
         literals.push(current);
     }
-    literals
+
+    // Remove duplicates: when one literal is a substring of another, keep the longer one.
+    literals.sort_by(|a, b| b.len().cmp(&a.len()));
+    let mut result = Vec::new();
+    for lit in literals {
+        if !result.iter().any(|r: &String| r.contains(&lit)) {
+            result.push(lit);
+        }
+    }
+    result
 }
 
 fn regex_search(
@@ -334,7 +359,7 @@ fn regex_search(
 
     let mut bm = RoaringBitmap::new();
     for doc_id in pre_filtered.iter() {
-        let path = reader.file_path(doc_id).map_err(|e| MlocateError::IndexFormatError { details: e })?;
+        let path = reader.file_path_only(doc_id).map_err(|e| MlocateError::IndexFormatError { details: e })?;
         let target = if options.basename {
             match path.rfind('/') {
                 Some(idx) => &path[idx + 1..],

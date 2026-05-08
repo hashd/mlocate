@@ -153,6 +153,10 @@ pub struct UpdateArgs {
     #[arg(short = 'v', long = "verbose")]
     pub verbose: bool,
 
+    /// Skip magic-byte MIME detection for extensionless files (faster, but may lose MIME accuracy).
+    #[arg(long = "no-magic-mime")]
+    pub no_magic_mime: bool,
+
     /// Install auto-index scheduling for the current user.
     #[arg(long = "install-cron")]
     pub install_cron: bool,

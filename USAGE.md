@@ -64,7 +64,7 @@ mlocate [OPTIONS] [PATTERNS...]
 | `--table` | Force table output |
 | `--json` | JSON array output |
 | `--plain` | Plain path-per-line output |
-| `--icons` | Show Nerd Font file type icons |
+| `--icons` | Show Nerd Font file type icons. **Requires a Nerd Font installed and configured in your terminal.** |
 | `--color <MODE>` | Color: `auto`, `always`, `never` (default: `auto`) |
 | `--generate-completions <SHELL>` | Generate shell completions (`bash`, `zsh`, `fish`) |
 
@@ -98,6 +98,8 @@ Suffix: `+` (>=), `-` (<=), omit for exact match.
 | `w` | `1w+` | 1 week ago or earlier |
 
 Suffix: `+` (older than), `-` (newer than), omit for exact match.
+
+Note: the `+`/`-` suffixes follow `find` convention: `+` means "more than N ago" (older files), `-` means "less than N ago" (newer files).
 
 **MIME filter** — `-t <TYPE>` / `--type <TYPE>`
 
@@ -182,5 +184,5 @@ mupdatedb  # writes to .tmp then atomically renames
 | Code | Meaning |
 |------|---------|
 | `0` | Matches found |
-| `1` | No matches |
+| `1` | No matches found or empty index. Both conditions are indistinguishable. |
 | `2` | Error (missing DB, bad filter syntax, etc.) |

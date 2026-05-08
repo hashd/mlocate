@@ -55,7 +55,10 @@ pub fn generate_bigrams_lowercase(path: &str) -> Vec<String> {
     generate_bigrams(&folded)
 }
 
-fn casefold(s: &str) -> String {
+// Uses caseless v0.2 which implements Unicode 12.0 case folding.
+// Current Unicode is version 16+. File paths are overwhelmingly ASCII,
+// so this divergence is unlikely to affect real-world use.
+pub fn casefold(s: &str) -> String {
     let normalized = unicode_normalization::UnicodeNormalization::nfc(s);
     caseless::default_case_fold_str(&normalized.collect::<String>())
 }

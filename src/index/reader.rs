@@ -14,11 +14,34 @@ pub struct IndexReader<'a> {
 impl<'a> IndexReader<'a> {
     pub fn new(mmap: &'a Mmap) -> Result<Self, String> {
         let data: &[u8] = mmap.as_ref();
+        if data.len() < 4 {
+            return Err("index too short (missing CRC footer)".into());
+        }
+        let stored_crc = u32::from_le_bytes([data[data.len()-4], data[data.len()-3], data[data.len()-2], data[data.len()-1]]);
+        let computed_crc = crc32fast::hash(&data[..data.len()-4]);
+        if stored_crc != computed_crc {
+            return Err(format!(
+                "index checksum mismatch (stored: {:08x}, computed: {:08x}). The index may be corrupt or truncated.",
+                stored_crc, computed_crc
+            ));
+        }
         let header = Header::from_bytes(data).map_err(|e| e.to_string())?;
         Ok(IndexReader { data, header })
     }
 
     pub fn from_bytes(data: &'a [u8]) -> Result<Self, String> {
+        if data.len() < 4 {
+            return Err("index too short (missing CRC footer)".into());
+        }
+        let crc_bytes = &data[data.len() - 4..];
+        let stored_crc = u32::from_le_bytes([crc_bytes[0], crc_bytes[1], crc_bytes[2], crc_bytes[3]]);
+        let computed_crc = crc32fast::hash(&data[..data.len() - 4]);
+        if stored_crc != computed_crc {
+            return Err(format!(
+                "index checksum mismatch (stored: {:08x}, computed: {:08x}). The index may be corrupt or truncated.",
+                stored_crc, computed_crc
+            ));
+        }
         let header = Header::from_bytes(data).map_err(|e| e.to_string())?;
         Ok(IndexReader { data, header })
     }

@@ -121,8 +121,9 @@ fn main() -> anyhow::Result<()> {
     for _ in 0..parallel {
         let rx = crawl_rx.clone();
         let tx = extract_tx.clone();
+        let skip_magic = cli.args.no_magic_mime;
         let handle = std::thread::spawn(move || {
-            pipeline::run_extractor(rx, tx);
+            pipeline::run_extractor(rx, tx, skip_magic);
         });
         extractor_handles.push(handle);
     }
@@ -213,6 +214,8 @@ fn main() -> anyhow::Result<()> {
 
         let file_count = match std::fs::File::open(&final_db) {
             Ok(file) => {
+                // SAFETY: The mmap is backed by a file that may be truncated externally.
+                // The old inode persists as long as the file handle is open.
                 match unsafe { memmap2::Mmap::map(&file) } {
                     Ok(mmap) => {
                         match IndexReader::new(&mmap) {
@@ -255,6 +258,8 @@ fn build_incremental(
     }
 
     let file = std::fs::File::open(old_db_path)?;
+    // SAFETY: The mmap is backed by a file that may be truncated externally.
+    // The old inode persists as long as the file handle is open.
     let mmap = unsafe { memmap2::Mmap::map(&file)? };
     let reader = IndexReader::new(&mmap)
         .map_err(|e| anyhow::anyhow!("Failed to read old index: {}", e))?;

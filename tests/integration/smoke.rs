@@ -448,3 +448,243 @@ fn test_type_filter() {
     assert!(stdout.contains("readme.md"), "text/* should match readme.md");
     assert!(stdout.contains("notes.txt"), "text/* should match notes.txt");
 }
+
+fn run_mlocate(db: &std::path::Path, args: &[&str]) -> String {
+    let output = run_mlocate_raw(db, args);
+    String::from_utf8_lossy(&output).to_string()
+}
+
+fn run_mlocate_raw(db: &std::path::Path, args: &[&str]) -> Vec<u8> {
+    let mut cmd = Command::new(mlocate_bin());
+    cmd.arg("--database").arg(db);
+    for a in args {
+        cmd.arg(a);
+    }
+    cmd.output().unwrap().stdout
+}
+
+fn index_fixture(dir: &std::path::Path, db: &std::path::Path) {
+    let mut cmd = Command::new(mupdatedb_bin());
+    cmd.arg("--database")
+        .arg(db)
+        .arg("--localpaths")
+        .arg(dir)
+        .arg("--quiet");
+    let output = cmd.output().unwrap();
+    assert!(
+        output.status.success(),
+        "mupdatedb failed: {:?}",
+        output
+    );
+}
+
+#[test]
+fn test_mime_filter_finds_image() {
+    let fixture = std::path::Path::new("tests/fixtures/common-types");
+    let db = fixture.join("test.db");
+    let mut cmd = Command::new(mupdatedb_bin());
+    cmd.arg("--database")
+        .arg(&db)
+        .arg("--localpaths")
+        .arg(fixture)
+        .arg("--quiet");
+    let output = cmd.output().unwrap();
+    assert!(output.status.success(), "mupdatedb failed: {:?}", output);
+
+    let mut search = Command::new(mlocate_bin());
+    search.arg("--database").arg(&db).arg("--type").arg("image/*").arg("--json");
+    let result = search.output().unwrap();
+    assert!(result.status.success());
+    let stdout = String::from_utf8_lossy(&result.stdout);
+    assert!(
+        stdout.contains("image/png") || stdout.contains("image/"),
+        "Expected image MIME in: {}",
+        stdout
+    );
+    let _ = std::fs::remove_file(&db);
+}
+
+#[test]
+fn test_prunepaths_with_gitignore() {
+    let fixture = std::path::Path::new("tests/fixtures/gitignore-test");
+    let db = fixture.join("test.db");
+    let mut cmd = Command::new(mupdatedb_bin());
+    cmd.arg("--database")
+        .arg(&db)
+        .arg("--localpaths")
+        .arg(fixture)
+        .arg("--prunepaths")
+        .arg(fixture.join("src"))
+        .arg("--quiet");
+    let output = cmd.output().unwrap();
+    assert!(output.status.success());
+
+    let mut search = Command::new(mlocate_bin());
+    search.arg("--database").arg(&db).arg("Cargo.toml").arg("--json");
+    let result = search.output().unwrap();
+    let stdout = String::from_utf8_lossy(&result.stdout);
+    assert!(stdout.contains("Cargo.toml"), "Cargo.toml should be indexed");
+    assert!(!stdout.contains("src/main.rs"), "src/ should be pruned");
+    let _ = std::fs::remove_file(&db);
+}
+
+#[test]
+fn test_symlink_handling() {
+    let fixture = std::path::Path::new("tests/fixtures/symlink-test");
+    let db = fixture.join("test.db");
+    let mut cmd = Command::new(mupdatedb_bin());
+    cmd.arg("--database")
+        .arg(&db)
+        .arg("--localpaths")
+        .arg(fixture)
+        .arg("--quiet");
+    let output = cmd.output().unwrap();
+    assert!(output.status.success());
+
+    let mut search = Command::new(mlocate_bin());
+    search.arg("--database").arg(&db).arg("link").arg("--json");
+    let result = search.output().unwrap();
+    let stdout = String::from_utf8_lossy(&result.stdout);
+    assert!(
+        stdout.trim().starts_with("[]"),
+        "Symlinks should not be indexed by default"
+    );
+    let _ = std::fs::remove_file(&db);
+}
+
+#[test]
+fn test_mupdatedb_incremental_updates_file() {
+    let tmp = tempfile::TempDir::new().unwrap();
+    let file_path = tmp.path().join("original.txt");
+    std::fs::write(&file_path, "hello").unwrap();
+
+    let db = tmp.path().join("mlocate.db");
+
+    let mut cmd = Command::new(mupdatedb_bin());
+    cmd.arg("--database")
+        .arg(&db)
+        .arg("--localpaths")
+        .arg(tmp.path())
+        .arg("--quiet");
+    assert!(cmd.status().unwrap().success());
+
+    let result = run_mlocate(&db, &["original.txt"]);
+    assert!(result.contains("original.txt"), "Original file should be found");
+
+    std::fs::write(tmp.path().join("newfile.txt"), "world").unwrap();
+
+    let mut cmd2 = Command::new(mupdatedb_bin());
+    cmd2.arg("--database")
+        .arg(&db)
+        .arg("--localpaths")
+        .arg(tmp.path())
+        .arg("--quiet")
+        .arg("--incremental");
+    assert!(cmd2.status().unwrap().success());
+
+    let result2 = run_mlocate(&db, &["newfile.txt"]);
+    assert!(
+        result2.contains("newfile.txt"),
+        "New file should be found after incremental"
+    );
+    let result3 = run_mlocate(&db, &["original.txt"]);
+    assert!(
+        result3.contains("original.txt"),
+        "Original file should still be found"
+    );
+}
+
+#[test]
+fn test_basename_flag() {
+    let tmp = tempfile::TempDir::new().unwrap();
+    std::fs::create_dir_all(tmp.path().join("sub")).unwrap();
+    std::fs::write(tmp.path().join("sub/hello.txt"), "data").unwrap();
+    std::fs::write(tmp.path().join("goodbye.txt"), "data").unwrap();
+
+    let db = tmp.path().join("mlocate.db");
+    index_fixture(tmp.path(), &db);
+
+    let result = run_mlocate(&db, &["--basename", "hello"]);
+    assert!(result.contains("hello.txt"), "Basename should match: {}", result);
+    assert!(!result.contains("goodbye.txt"), "Should not match goodbye");
+}
+
+#[test]
+fn test_multi_pattern_or() {
+    let tmp = tempfile::TempDir::new().unwrap();
+    std::fs::write(tmp.path().join("a.txt"), "a").unwrap();
+    std::fs::write(tmp.path().join("b.txt"), "b").unwrap();
+    std::fs::write(tmp.path().join("c.txt"), "c").unwrap();
+
+    let db = tmp.path().join("mlocate.db");
+    index_fixture(tmp.path(), &db);
+
+    let result = run_mlocate(&db, &["a.txt", "b.txt"]);
+    assert!(result.contains("a.txt"), "Should contain a");
+    assert!(result.contains("b.txt"), "Should contain b");
+    assert!(!result.contains("c.txt"), "Should not contain c");
+}
+
+#[test]
+fn test_null_output() {
+    let tmp = tempfile::TempDir::new().unwrap();
+    std::fs::write(tmp.path().join("test.txt"), "data").unwrap();
+
+    let db = tmp.path().join("mlocate.db");
+    index_fixture(tmp.path(), &db);
+
+    let output = run_mlocate_raw(&db, &["--null", "test"]);
+    assert!(output.ends_with(b"\0"), "NUL output should end with null byte");
+}
+
+#[test]
+fn test_color_never() {
+    let tmp = tempfile::TempDir::new().unwrap();
+    std::fs::write(tmp.path().join("test.txt"), "data").unwrap();
+    let db = tmp.path().join("mlocate.db");
+    index_fixture(tmp.path(), &db);
+    let output = run_mlocate_raw(&db, &["--color=never", "test"]);
+    assert!(!output.is_empty());
+}
+
+#[test]
+fn test_schema_output() {
+    let tmp = tempfile::TempDir::new().unwrap();
+    std::fs::write(tmp.path().join("test.txt"), "data").unwrap();
+    let db = tmp.path().join("mlocate.db");
+    index_fixture(tmp.path(), &db);
+
+    let output = run_mlocate_raw(&db, &["--statistics"]);
+    let stdout = String::from_utf8_lossy(&output);
+    assert!(
+        stdout.contains("\"schema_version\""),
+        "Schema should have schema_version: {}",
+        stdout
+    );
+    assert!(
+        stdout.contains("\"format_version\""),
+        "Schema should have format_version: {}",
+        stdout
+    );
+}
+
+#[test]
+fn test_no_magic_mime_flag() {
+    let tmp = tempfile::TempDir::new().unwrap();
+    std::fs::write(tmp.path().join("test.txt"), "hello world").unwrap();
+
+    let db = tmp.path().join("mlocate.db");
+    let mut cmd = Command::new(mupdatedb_bin());
+    cmd.arg("--database")
+        .arg(&db)
+        .arg("--localpaths")
+        .arg(tmp.path())
+        .arg("--quiet")
+        .arg("--no-magic-mime");
+    let output = cmd.output().unwrap();
+    assert!(
+        output.status.success(),
+        "--no-magic-mime should not crash: {:?}",
+        output
+    );
+}

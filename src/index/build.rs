@@ -1,4 +1,3 @@
-use std::collections::HashSet;
 use std::fs;
 use std::io::{BufWriter, Write, Read};
 use std::path::{Path, PathBuf};
@@ -139,8 +138,7 @@ fn flush_chunk(
     run_id: u128,
 ) -> Result<PathBuf, MlocateError> {
     buffer.sort_by(|a, b| a.path.cmp(&b.path));
-    let mut seen = HashSet::new();
-    buffer.retain(|e| seen.insert(e.path.clone()));
+    buffer.dedup_by(|a, b| a.path == b.path);
 
     let path = chunk_dir.join(format!("mlocate_chunk_{:04}_{}.tmp", idx, run_id));
     let file = fs::File::create(&path).map_err(|e| MlocateError::Other(format!(
@@ -239,6 +237,21 @@ fn merge_chunks(
         readers.push(ChunkReader::open(f)?);
     }
 
+    // Estimate memory for in-memory trigram bitmap construction:
+    // ~15 trigrams per path × ~32 bytes per RoaringBitmap doc_id entry
+    let total_files: usize = readers.iter().map(|r| r.remaining as usize).sum();
+    let est_trigram_mem_mb = (total_files as u64 * 15 * 32) / (1024 * 1024);
+
+    const TRIGRAM_MEM_WARN_MB: u64 = 256; // 256 MB trigger for diagnostic
+
+    if est_trigram_mem_mb > TRIGRAM_MEM_WARN_MB {
+        eprintln!(
+            "mlocate: indexing {} files (~{} MB estimated trigram memory). \
+             For very large indexes (>1M files), consider implementing external sort for trigram bitmap construction (see Issue 9.1).",
+            total_files, est_trigram_mem_mb
+        );
+    }
+
     let mut heap = std::collections::BinaryHeap::new();
     for (i, reader) in readers.iter().enumerate() {
         if let Some((path, ..)) = reader.peek() {
@@ -291,7 +304,12 @@ fn index_file_trigrams(writer: &mut IndexWriter, path: &str, doc_id: u32) {
     if let Some(ext) = Path::new(path).extension().and_then(|e| e.to_str()) {
         let mut ext_key = [0u8; 8];
         let eb = ext.as_bytes();
-        ext_key[..eb.len().min(8)].copy_from_slice(eb);
+        if eb.len() <= 8 {
+            ext_key[..eb.len()].copy_from_slice(eb);
+        } else {
+            let hash = fxhash::hash64(eb);
+            ext_key.copy_from_slice(&hash.to_le_bytes());
+        }
         writer.add_ext_doc(ext_key, doc_id);
     }
 }
@@ -303,20 +321,12 @@ fn write_atomic(
     writer: &IndexWriter,
 ) -> Result<(), MlocateError> {
     {
-        let file = fs::File::create(tmp_path).map_err(|e| MlocateError::Other(format!(
-            "Cannot create temp index {}: {}", tmp_path.display(), e
-        )))?;
-        let mut buf = BufWriter::new(file);
-        let _num_files = writer.write_to(&mut buf, config).map_err(|e| MlocateError::Other(format!(
+        let data = writer.into_bytes(config).map_err(|e| MlocateError::Other(format!(
             "Failed to write index: {}", e
         )))?;
-        buf.flush().map_err(|e| MlocateError::Other(format!("Failed to flush: {}", e)))?;
-        buf.into_inner()
-            .map_err(|e| MlocateError::Other(format!("Failed to sync: {}", e.into_error())))?
-            .sync_all()
-            .map_err(|e| MlocateError::Other(format!(
-                "Failed to fsync temp index: {}", e
-            )))?;
+        std::fs::write(tmp_path, &data).map_err(|e| MlocateError::Other(format!(
+            "Cannot create temp index {}: {}", tmp_path.display(), e
+        )))?;
     }
 
     if let Some(parent) = db_path.parent() {
@@ -343,6 +353,8 @@ struct HeapItem {
     reader_idx: usize,
 }
 
+// Reversed comparison to make BinaryHeap (max-heap by default) behave as min-heap.
+// This ensures the smallest path is popped first during k-way merge.
 impl Ord for HeapItem {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
         other.path.cmp(&self.path)

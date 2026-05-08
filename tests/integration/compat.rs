@@ -5,6 +5,24 @@ fn mlocate_bin() -> String {
         .unwrap_or_else(|_| "target/debug/mlocate".to_string())
 }
 
+fn mupdatedb_bin() -> String {
+    std::env::var("CARGO_BIN_EXE_mupdatedb")
+        .unwrap_or_else(|_| "target/debug/mupdatedb".to_string())
+}
+
+fn setup_test_db(dir: &std::path::Path, db: &std::path::Path) {
+    std::fs::write(dir.join("test_file.txt"), "test content").unwrap();
+    let output = Command::new(mupdatedb_bin())
+        .arg("--localpaths")
+        .arg(dir)
+        .arg("--database")
+        .arg(db)
+        .arg("--quiet")
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "mupdatedb failed: {:?}", output);
+}
+
 #[test]
 fn test_gnu_flag_stubs_error() {
     let output = Command::new(mlocate_bin())
@@ -39,23 +57,33 @@ fn test_gnu_mode_accepts_stubs() {
 
 #[test]
 fn test_case_insensitive() {
+    let tmp = tempfile::TempDir::new().unwrap();
+    let db = tmp.path().join("mlocate.db");
+    setup_test_db(tmp.path(), &db);
     let output = Command::new(mlocate_bin())
         .arg("-i")
         .arg("TEST")
         .arg("--count")
+        .arg("--database")
+        .arg(&db)
         .output()
         .expect("should run");
-    let _ = output.status;
+    assert!(output.status.success(), "Command failed: {:?}", output);
 }
 
 #[test]
 fn test_count_flag() {
+    let tmp = tempfile::TempDir::new().unwrap();
+    let db = tmp.path().join("mlocate.db");
+    setup_test_db(tmp.path(), &db);
     let output = Command::new(mlocate_bin())
         .arg("--count")
         .arg("testpattern")
+        .arg("--database")
+        .arg(&db)
         .output()
         .expect("should run");
-    let _ = output.status;
+    assert!(output.status.success(), "Command failed: {:?}", output);
 }
 
 #[test]

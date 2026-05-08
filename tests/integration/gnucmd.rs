@@ -12,7 +12,9 @@ fn test_gnu_mode_plain_output() {
         .arg("test")
         .output()
         .expect("should run");
-    let _ = output.status;
+    assert!(output.status.success(), "Command failed: {:?}", output);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(!stdout.is_empty(), "Expected non-empty output");
 }
 
 #[test]
@@ -21,5 +23,7 @@ fn test_gnu_s_short_flag() {
         .arg("-S")
         .output()
         .expect("should run");
-    let _ = output.status;
+    assert!(output.status.success(), "Command failed: {:?}", output);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("\"schema_version\""), "Expected JSON schema in: {}", stdout);
 }

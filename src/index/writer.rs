@@ -217,7 +217,10 @@ impl IndexWriter {
     pub fn into_bytes(&self, config: &IndexConfig) -> io::Result<Vec<u8>> {
         let mut buf = io::Cursor::new(Vec::new());
         self.write_to(&mut buf, config)?;
-        Ok(buf.into_inner())
+        let mut data = buf.into_inner();
+        let crc = crc32fast::hash(&data);
+        data.extend_from_slice(&crc.to_le_bytes());
+        Ok(data)
     }
 
     pub fn file_count(&self) -> usize {

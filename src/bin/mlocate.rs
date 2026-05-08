@@ -70,6 +70,9 @@ fn main() -> anyhow::Result<()> {
         }
     };
 
+    // SAFETY: The mmap is backed by a file that may be truncated externally.
+    // A SIGBUS handler is installed (install_sigbus_handler) to catch this.
+    // The old inode persists as long as the file handle is open.
     let mmap = match unsafe { memmap2::Mmap::map(&file) } {
         Ok(m) => m,
         Err(e) => {
@@ -106,7 +109,11 @@ fn main() -> anyhow::Result<()> {
         return Ok(());
     }
 
-    if cli.patterns.is_empty() {
+    if cli.patterns.is_empty()
+        && cli.size.is_none()
+        && cli.modified.is_none()
+        && cli.mime_type.is_none()
+    {
         eprintln!("mlocate: a search pattern is required. Usage: mlocate [OPTIONS] <pattern>");
         std::process::exit(2);
     }
@@ -137,20 +144,16 @@ fn main() -> anyhow::Result<()> {
         }
     };
 
-    let mut results: Vec<mlocate::index::format::DiskFileEntry> = Vec::new();
-    for result in search_results {
-        match result {
-            Ok(entry) => {
-                results.push(entry);
-            }
-            Err(e) => {
-                eprintln!("mlocate: {}", e);
+    if cli.count {
+        let mut count: i64 = 0;
+        for result in search_results {
+            match result {
+                Ok(_) => count += 1,
+                Err(e) => {
+                    eprintln!("mlocate: {}", e);
+                }
             }
         }
-    }
-
-    if cli.count {
-        let count = results.len() as i64;
         if cli.json {
             println!("{}", output::json::render_json_count(count));
         } else {
@@ -158,8 +161,6 @@ fn main() -> anyhow::Result<()> {
         }
         std::process::exit(if count == 0 { 1 } else { 0 });
     }
-
-    let exit_code = if results.is_empty() { 1 } else { 0 };
 
     let use_color = match cli.color {
         mlocate::cli::ColorMode::Always => {
@@ -176,46 +177,105 @@ fn main() -> anyhow::Result<()> {
     };
 
     if cli.json {
-        let entries: Vec<output::json::JsonFileEntry> = results
-            .iter()
-            .map(|r| output::json::JsonFileEntry {
-                path: r.full_path.clone(),
-                size: r.size,
-                mtime: r.mtime,
-                mode: r.mode,
-                mime_type: r.mime_type.clone(),
-            })
-            .collect();
-        let json_output = output::json::render_json(&entries);
-        println!("{}", json_output);
+        use std::io::Write;
+        let stdout = std::io::stdout();
+        let mut handle = stdout.lock();
+        let mut first = true;
+        let mut has_results = false;
+        write!(handle, "[").unwrap();
+        for result in search_results {
+            match result {
+                Ok(entry) => {
+                    let je = output::json::JsonFileEntry {
+                        path: entry.full_path,
+                        size: entry.size,
+                        mtime: entry.mtime,
+                        mode: entry.mode,
+                        mime_type: entry.mime_type,
+                    };
+                    if !first { write!(handle, ",").unwrap(); }
+                    write!(handle, "\n {}", serde_json::to_string(&je).unwrap_or_default()).unwrap();
+                    first = false;
+                    has_results = true;
+                }
+                Err(e) => eprintln!("mlocate: {}", e),
+            }
+        }
+        if has_results { writeln!(handle, "\n]").unwrap(); }
+        else { writeln!(handle, "]").unwrap(); }
+        std::process::exit(if has_results { 0 } else { 1 });
     } else if cli.null {
-        let paths: Vec<String> = results.iter().map(|r| r.full_path.clone()).collect();
-        let bytes = output::plain::render_null(&paths);
-        std::io::Write::write_all(&mut std::io::stdout(), &bytes)?;
+        use std::io::Write;
+        let stdout = std::io::stdout();
+        let mut handle = stdout.lock();
+        let mut has_results = false;
+        for result in search_results {
+            match result {
+                Ok(entry) => {
+                    handle.write_all(entry.full_path.as_bytes()).unwrap();
+                    handle.write_all(&[0u8]).unwrap();
+                    has_results = true;
+                }
+                Err(e) => eprintln!("mlocate: {}", e),
+            }
+        }
+        std::process::exit(if has_results { 0 } else { 1 });
     } else if cli.plain {
-        let paths: Vec<String> = results.iter().map(|r| r.full_path.clone()).collect();
-        println!("{}", output::plain::render_plain(&paths));
+        let mut has_results = false;
+        for result in search_results {
+            match result {
+                Ok(entry) => {
+                    println!("{}", entry.full_path);
+                    has_results = true;
+                }
+                Err(e) => eprintln!("mlocate: {}", e),
+            }
+        }
+        std::process::exit(if has_results { 0 } else { 1 });
     } else if cli.table || is_terminal::is_terminal(std::io::stdout()) {
-        let table_results: Vec<output::table::TableResult> = results
-            .iter()
-            .map(|r| output::table::TableResult {
-                full_path: r.full_path.clone(),
-                size: r.size,
-                mtime: r.mtime,
-                mime_type: r.mime_type.clone(),
-            })
-            .collect();
+        let mut table_results: Vec<output::table::TableResult> = Vec::new();
+        for result in search_results {
+            match result {
+                Ok(entry) => {
+                    table_results.push(output::table::TableResult {
+                        full_path: entry.full_path,
+                        size: entry.size,
+                        mtime: entry.mtime,
+                        mime_type: entry.mime_type,
+                    });
+                }
+                Err(e) => eprintln!("mlocate: {}", e),
+            }
+        }
+        let exit_code = if table_results.is_empty() { 1 } else { 0 };
         let table_output = output::table::render_table(&table_results, cli.icons, use_color);
         output::pager::page_output(&table_output)?;
+        std::process::exit(exit_code);
     } else if cli.gnu {
-        let paths: Vec<String> = results.iter().map(|r| r.full_path.clone()).collect();
-        println!("{}", output::plain::render_plain(&paths));
+        let mut has_results = false;
+        for result in search_results {
+            match result {
+                Ok(entry) => {
+                    println!("{}", entry.full_path);
+                    has_results = true;
+                }
+                Err(e) => eprintln!("mlocate: {}", e),
+            }
+        }
+        std::process::exit(if has_results { 0 } else { 1 });
     } else {
-        let paths: Vec<String> = results.iter().map(|r| r.full_path.clone()).collect();
-        println!("{}", output::plain::render_plain(&paths));
+        let mut has_results = false;
+        for result in search_results {
+            match result {
+                Ok(entry) => {
+                    println!("{}", entry.full_path);
+                    has_results = true;
+                }
+                Err(e) => eprintln!("mlocate: {}", e),
+            }
+        }
+        std::process::exit(if has_results { 0 } else { 1 });
     }
-
-    std::process::exit(exit_code);
 }
 
 fn install_sigbus_handler() {

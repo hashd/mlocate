@@ -96,5 +96,63 @@ fn bench_bitmap_intersection(c: &mut Criterion) {
     });
 }
 
-criterion_group!(benches, bench_trigram_generation, bench_filter_parsing, bench_bitmap_intersection);
+fn bench_serialization(c: &mut Criterion) {
+    let mut writer = IndexWriter::new();
+    for i in 0..10_000u32 {
+        let path = format!("/home/user/bench_file_{}.txt", i);
+        writer.add_file(&path, i as u64 * 100, 1746720000, 0o644, "text/plain");
+        let tris = trigram::generate_trigrams_lowercase(&path);
+        for tri in &tris {
+            writer.add_trigram_doc(trigram::trigram_to_bytes(tri), i);
+        }
+    }
+    writer.prune_empty();
+    let config = IndexConfig {
+        indexed_paths: vec![],
+        pruned_paths: vec![],
+        timestamp: 0,
+        hostname: "test".into(),
+        total_bytes_indexed: 0,
+        mlocate_version: "0.1.0".into(),
+    };
+
+    c.bench_function("serialization: into_bytes 10K files", |b| {
+        b.iter(|| writer.into_bytes(&config).unwrap())
+    });
+}
+
+fn bench_deserialization(c: &mut Criterion) {
+    let mut writer = IndexWriter::new();
+    for i in 0..10_000u32 {
+        let path = format!("/home/user/bench_file_{}.txt", i);
+        writer.add_file(&path, i as u64 * 100, 1746720000, 0o644, "text/plain");
+        let tris = trigram::generate_trigrams_lowercase(&path);
+        for tri in &tris {
+            writer.add_trigram_doc(trigram::trigram_to_bytes(tri), i);
+        }
+    }
+    writer.prune_empty();
+    let config = IndexConfig {
+        indexed_paths: vec![],
+        pruned_paths: vec![],
+        timestamp: 0,
+        hostname: "test".into(),
+        total_bytes_indexed: 0,
+        mlocate_version: "0.1.0".into(),
+    };
+    let data = writer.into_bytes(&config).unwrap();
+    let data_static: &'static [u8] = Box::leak(data.into_boxed_slice());
+
+    c.bench_function("deserialization: IndexReader::from_bytes 10K files", |b| {
+        b.iter(|| IndexReader::from_bytes(data_static).unwrap())
+    });
+}
+
+criterion_group!(benches,
+    bench_trigram_generation,
+    bench_filter_parsing,
+    bench_bitmap_intersection,
+    bench_serialization,
+    bench_deserialization,
+);
 criterion_main!(benches);
