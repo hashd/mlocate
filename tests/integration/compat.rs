@@ -30,6 +30,7 @@ fn test_gnu_mode_accepts_stubs() {
         stderr.contains("will be ignored")
             || stderr.contains("not supported")
             || stderr.contains("No database found")
+            || stderr.contains("No index found")
             || stderr.is_empty(),
         "unexpected stderr: {}",
         stderr,

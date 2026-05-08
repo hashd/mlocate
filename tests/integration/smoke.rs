@@ -35,6 +35,17 @@ fn test_mupdatedb_help() {
 }
 
 #[test]
+fn test_mupdatedb_help_no_incremental() {
+    let output = Command::new(mupdatedb_bin())
+        .arg("--incremental")
+        .output()
+        .expect("should run");
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("not supported"));
+}
+
+#[test]
 fn test_version() {
     let output = Command::new(mlocate_bin())
         .arg("--version")

@@ -103,7 +103,7 @@ impl IndexConfig {
         let json = serde_json::to_vec(self)
             .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
         zstd::encode_all(&json[..], 3)
-            .map_err(|e| io::Error::new(io::ErrorKind::Other, e))
+            .map_err(io::Error::other)
     }
 
     pub fn from_compressed(data: &[u8]) -> io::Result<Self> {
@@ -114,6 +114,7 @@ impl IndexConfig {
     }
 }
 
+#[derive(Default)]
 pub struct IndexWriter {
     files: Vec<DiskFileEntry>,
     trigrams: BTreeMap<[u8; 3], RoaringBitmap>,
@@ -121,10 +122,7 @@ pub struct IndexWriter {
 
 impl IndexWriter {
     pub fn new() -> Self {
-        IndexWriter {
-            files: Vec::new(),
-            trigrams: BTreeMap::new(),
-        }
+        Self::default()
     }
 
     pub fn add_file(&mut self, full_path: &str, size: u64, mtime: i64, mode: u32, mime_type: &str) -> u32 {
@@ -140,7 +138,7 @@ impl IndexWriter {
     }
 
     pub fn add_trigram_doc(&mut self, trigram: [u8; 3], doc_id: u32) {
-        self.trigrams.entry(trigram).or_insert_with(RoaringBitmap::new).insert(doc_id);
+        self.trigrams.entry(trigram).or_default().insert(doc_id);
     }
 
     pub fn prune_empty(&mut self) {
@@ -187,10 +185,10 @@ impl IndexWriter {
         w.write_all(&vec![0u8; (num_trigrams as usize) * 15])?;
 
         let mut trigram_entries: Vec<(u64, u32)> = Vec::with_capacity(num_trigrams as usize);
-        for (_trigram, bitmap) in &self.trigrams {
+        for bitmap in self.trigrams.values() {
             let offset = w.stream_position()? - bitmap_data_offset;
             let len_before = w.stream_position()?;
-            bitmap.serialize_into(&mut *w).map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
+            bitmap.serialize_into(&mut *w).map_err(io::Error::other)?;
             let len_after = w.stream_position()?;
             let len = (len_after - len_before) as u32;
             trigram_entries.push((offset, len));

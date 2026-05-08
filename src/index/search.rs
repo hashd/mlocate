@@ -7,25 +7,13 @@ use crate::filter::{CmpOp, MimeFilter, ModifiedFilter, SizeFilter};
 use super::format::{DiskFileEntry, IndexReader};
 use super::trigram;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct SearchOptions {
     pub ignore_case: bool,
     pub basename: bool,
     pub regex: bool,
     pub existing: bool,
     pub limit: Option<usize>,
-}
-
-impl Default for SearchOptions {
-    fn default() -> Self {
-        SearchOptions {
-            ignore_case: false,
-            basename: false,
-            regex: false,
-            existing: false,
-            limit: None,
-        }
-    }
 }
 
 #[derive(Debug, Clone, Default)]
@@ -113,7 +101,7 @@ fn filter_matches(entry: &DiskFileEntry, filters: &SearchFilters) -> bool {
     }
 
     if let Some(ref mf) = filters.modified {
-        let cutoff = (chrono::Utc::now().timestamp() - mf.seconds) as i64;
+        let cutoff = chrono::Utc::now().timestamp() - mf.seconds;
         let ok = match mf.operator {
             CmpOp::Ge => entry.mtime >= cutoff,
             CmpOp::Le => entry.mtime <= cutoff,

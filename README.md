@@ -1,10 +1,10 @@
 # mlocate
 
-A high-performance, metadata-aware alternative to GNU `locate` built with Rust and DuckDB.
+A high-performance, metadata-aware alternative to GNU `locate` built with Rust and Roaring Bitmaps.
 
 ## Features
 
-- **Fast substring search** — Trigram-accelerated SQL queries via DuckDB
+- **Fast substring search** — Trigram-accelerated bitmap intersection with LIKE verification
 - **Metadata-aware** — Search by file size, modification time, and MIME type
 - **Rich output** — Modern table view, JSON, plain text, or NUL-terminated
 - **GNU compatible** — `--gnu` mode accepts standard `locate` flags
