@@ -77,54 +77,30 @@ fn extract_metadata(path: &std::path::Path) -> FileEntry {
 }
 
 fn detect_mime(path: &std::path::Path) -> String {
-    let mut buf = vec![0u8; 4096];
-    let bytes_read = match std::fs::File::open(path) {
-        Ok(mut file) => {
-            use std::io::Read;
-            file.read(&mut buf).unwrap_or(0)
-        }
-        Err(_) => 0,
-    };
-
-    if bytes_read > 0 {
-        buf.truncate(bytes_read);
-        match infer::get(&buf) {
-            Some(kind) => kind.mime_type().to_string(),
-            None => guess_from_ext(path),
-        }
-    } else {
-        guess_from_ext(path)
+    let guessed = mime_guess::from_path(path).first_or_octet_stream();
+    if guessed.essence_str() != "application/octet-stream" {
+        return guessed.essence_str().to_string();
     }
-}
 
-fn guess_from_ext(path: &std::path::Path) -> String {
-    match path.extension().and_then(|e| e.to_str()) {
-        Some("rs") => "text/x-rust".to_string(),
-        Some("py") => "text/x-python".to_string(),
-        Some("js") => "application/javascript".to_string(),
-        Some("ts") => "application/typescript".to_string(),
-        Some("json") => "application/json".to_string(),
-        Some("yaml") | Some("yml") => "application/x-yaml".to_string(),
-        Some("md") => "text/markdown".to_string(),
-        Some("pdf") => "application/pdf".to_string(),
-        Some("png") => "image/png".to_string(),
-        Some("jpg") | Some("jpeg") => "image/jpeg".to_string(),
-        Some("gif") => "image/gif".to_string(),
-        Some("svg") => "image/svg+xml".to_string(),
-        Some("zip") => "application/zip".to_string(),
-        Some("tar") => "application/x-tar".to_string(),
-        Some("gz") => "application/gzip".to_string(),
-        Some("bz2") => "application/x-bzip2".to_string(),
-        Some("sh") | Some("bash") | Some("zsh") => "text/x-shellscript".to_string(),
-        Some("c") | Some("h") => "text/x-c".to_string(),
-        Some("cpp") | Some("hpp") => "text/x-c++src".to_string(),
-        Some("go") => "text/x-go".to_string(),
-        Some("rb") => "text/x-ruby".to_string(),
-        Some("css") => "text/css".to_string(),
-        Some("html") => "text/html".to_string(),
-        Some("toml") => "application/toml".to_string(),
-        _ => "application/octet-stream".to_string(),
+    if path.extension().is_none() {
+        let mut buf = vec![0u8; 4096];
+        let bytes_read = match std::fs::File::open(path) {
+            Ok(mut file) => {
+                use std::io::Read;
+                file.read(&mut buf).unwrap_or(0)
+            }
+            Err(_) => 0,
+        };
+
+        if bytes_read > 0 {
+            buf.truncate(bytes_read);
+            if let Some(kind) = infer::get(&buf) {
+                return kind.mime_type().to_string();
+            }
+        }
     }
+
+    "application/octet-stream".to_string()
 }
 
 pub fn run_batcher(
@@ -169,7 +145,7 @@ fn flush_batch(
     incremental: bool,
     stats: &Arc<WalkStats>,
 ) -> Result<(), crate::error::MlocateError> {
-    use crate::db::trigram::escape_like;
+    use crate::db::trigram::{escape_like, generate_trigrams_lowercase};
 
     let count = batch.len();
 
@@ -183,23 +159,19 @@ fn flush_batch(
         if incremental && dirs_inserted.contains(&entry.dir_path) {
             let escaped = escape_like(&entry.dir_path);
             tx.execute(
-                &format!(
-                    "DELETE FROM trigrams WHERE file_id IN (SELECT id FROM files WHERE full_path LIKE ? ESCAPE '\\')"
-                ),
+                "DELETE FROM trigrams WHERE file_id IN (SELECT id FROM files WHERE full_path LIKE ? ESCAPE '\\')",
                 duckdb::params![format!("{}/%", escaped)],
             )
             .ok();
             tx.execute(
-                &format!(
-                    "DELETE FROM files WHERE full_path LIKE ? ESCAPE '\\'"
-                ),
+                "DELETE FROM files WHERE full_path LIKE ? ESCAPE '\\'",
                 duckdb::params![format!("{}/%", escaped)],
             )
             .ok();
         }
 
-        tx.execute(
-            "INSERT INTO files (id, full_path, size, mtime, mode, mime_type) VALUES (nextval('files_id_seq'), ?, ?, ?, ?, ?) ON CONFLICT(full_path) DO UPDATE SET size=EXCLUDED.size, mtime=EXCLUDED.mtime, mode=EXCLUDED.mode, mime_type=EXCLUDED.mime_type",
+        let file_id: i64 = tx.query_row(
+            "INSERT INTO files (id, full_path, size, mtime, mode, mime_type) VALUES (nextval('files_id_seq'), ?, ?, ?, ?, ?) ON CONFLICT(full_path) DO UPDATE SET size=EXCLUDED.size, mtime=EXCLUDED.mtime, mode=EXCLUDED.mode, mime_type=EXCLUDED.mime_type RETURNING id",
             duckdb::params![
                 entry.full_path,
                 entry.size,
@@ -207,10 +179,23 @@ fn flush_batch(
                 entry.mode,
                 entry.mime_type,
             ],
+            |row| row.get(0),
         )
         .map_err(|e| crate::error::MlocateError::DatabaseQueryFailed {
             details: e.to_string(),
         })?;
+
+        let trigrams = generate_trigrams_lowercase(&entry.full_path);
+        tx.execute("DELETE FROM trigrams WHERE file_id = ?", duckdb::params![file_id]).ok();
+        for tri in &trigrams {
+            tx.execute(
+                "INSERT INTO trigrams (trigram, file_id) VALUES (?, ?)",
+                duckdb::params![tri, file_id],
+            )
+            .map_err(|e| crate::error::MlocateError::DatabaseQueryFailed {
+                details: e.to_string(),
+            })?;
+        }
 
         dirs_inserted.insert(entry.dir_path.clone());
     }
