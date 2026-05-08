@@ -55,7 +55,7 @@ impl<'a> Iterator for SearchResults<'a> {
                 Err(e) => return Some(Err(MlocateError::IndexFormatError { details: e })),
             };
 
-            if !self.patterns.is_empty() && !self.patterns.iter().any(|pat| path_matches(&entry.full_path, pat, &self.options)) {
+            if !self.options.regex && !self.patterns.is_empty() && !self.patterns.iter().any(|pat| path_matches(&entry.full_path, pat, &self.options)) {
                 continue;
             }
 
@@ -143,7 +143,12 @@ pub fn search<'a>(
 
     let candidate_ids: Vec<u32> = if options.regex {
         let regexes: Vec<Regex> = patterns.iter().map(|p| {
-            Regex::new(p).map_err(|e| MlocateError::Other(format!("Invalid regex '{}': {}", p, e)))
+            let pattern = if options.ignore_case {
+                format!("(?i){}", p)
+            } else {
+                p.clone()
+            };
+            Regex::new(&pattern).map_err(|e| MlocateError::Other(format!("Invalid regex '{}': {}", p, e)))
         }).collect::<Result<Vec<_>, _>>()?;
 
         let mut ids = Vec::new();
@@ -376,5 +381,47 @@ mod tests {
         ).unwrap();
         let paths: Vec<String> = results.map(|r| r.unwrap().full_path).collect();
         assert_eq!(paths, vec!["/var/log/syslog"]);
+    }
+
+    #[test]
+    fn test_search_regex() {
+        let data = build_test_data();
+        let reader = data.read();
+        let results = search(
+            &reader,
+            &[r"\.rs$".to_string()],
+            &SearchOptions { regex: true, ..Default::default() },
+            &SearchFilters::default(),
+        ).unwrap();
+        let paths: Vec<String> = results.map(|r| r.unwrap().full_path).collect();
+        assert_eq!(paths, vec!["/home/user/foo.rs"]);
+    }
+
+    #[test]
+    fn test_search_regex_case_insensitive() {
+        let data = build_test_data();
+        let reader = data.read();
+        let results = search(
+            &reader,
+            &[r"README".to_string()],
+            &SearchOptions { regex: true, ignore_case: true, ..Default::default() },
+            &SearchFilters::default(),
+        ).unwrap();
+        let paths: Vec<String> = results.map(|r| r.unwrap().full_path).collect();
+        assert_eq!(paths, vec!["/home/user/README.md"]);
+    }
+
+    #[test]
+    fn test_search_multi_pattern_or() {
+        let data = build_test_data();
+        let reader = data.read();
+        let results = search(
+            &reader,
+            &["foo".to_string(), "syslog".to_string()],
+            &SearchOptions::default(),
+            &SearchFilters::default(),
+        ).unwrap();
+        let paths: Vec<String> = results.map(|r| r.unwrap().full_path).collect();
+        assert_eq!(paths, vec!["/home/user/foo.rs", "/var/log/syslog"]);
     }
 }

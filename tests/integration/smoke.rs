@@ -321,3 +321,52 @@ fn test_count_with_json() {
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("\"count\": 2"), "got: {}", stdout);
 }
+
+#[test]
+fn test_regex_search() {
+    let tmp = tempfile::TempDir::new().expect("should create temp dir");
+    let db_path = tmp.path().join("mlocate.db");
+    let test_dir = tmp.path().join("testdata");
+    std::fs::create_dir_all(&test_dir).unwrap();
+    std::fs::write(test_dir.join("hello.rs"), "fn main() {}").unwrap();
+    std::fs::write(test_dir.join("hello.md"), "# hi").unwrap();
+    std::fs::write(test_dir.join("world.txt"), "text").unwrap();
+
+    index_test_dir(&test_dir, &db_path);
+
+    let output = Command::new(mlocate_bin())
+        .arg("--database")
+        .arg(db_path.to_str().unwrap())
+        .arg("-r")
+        .arg(r"\.rs$")
+        .arg("--plain")
+        .output()
+        .expect("should run");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("hello.rs"), "regex .rs$ should match hello.rs, got: {}", stdout);
+    assert!(!stdout.contains("hello.md"), "regex .rs$ should NOT match hello.md, got: {}", stdout);
+}
+
+#[test]
+fn test_regex_case_insensitive() {
+    let tmp = tempfile::TempDir::new().expect("should create temp dir");
+    let db_path = tmp.path().join("mlocate.db");
+    let test_dir = tmp.path().join("testdata");
+    std::fs::create_dir_all(&test_dir).unwrap();
+    std::fs::write(test_dir.join("README.md"), "# Test").unwrap();
+    std::fs::write(test_dir.join("notes.txt"), "notes").unwrap();
+
+    index_test_dir(&test_dir, &db_path);
+
+    let output = Command::new(mlocate_bin())
+        .arg("--database")
+        .arg(db_path.to_str().unwrap())
+        .arg("-r")
+        .arg("-i")
+        .arg("readme")
+        .arg("--plain")
+        .output()
+        .expect("should run");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("README.md"), "-i -r readme should match README.md, got: {}", stdout);
+}
