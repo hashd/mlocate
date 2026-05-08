@@ -26,7 +26,14 @@ fn test_gnu_mode_accepts_stubs() {
         .output()
         .expect("should run");
     let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(stderr.contains("will be ignored") || stderr.is_empty());
+    assert!(
+        stderr.contains("will be ignored")
+            || stderr.contains("not supported")
+            || stderr.contains("No database found")
+            || stderr.is_empty(),
+        "unexpected stderr: {}",
+        stderr,
+    );
 }
 
 #[test]

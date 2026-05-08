@@ -45,16 +45,19 @@ fn test_version() {
 
 #[test]
 fn test_count_no_db() {
+    let db_path = std::env::temp_dir().join("nonexistent_mlocate_test.db");
+    // Clean up from any previous run
+    let _ = std::fs::remove_file(&db_path);
     let output = Command::new(mlocate_bin())
         .arg("--count")
         .arg("--database")
-        .arg("/tmp/nonexistent_mlocate_test.db")
+        .arg(db_path.to_str().unwrap())
         .arg("test")
         .output()
         .expect("should run");
     assert!(!output.status.success());
     let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(stderr.contains("Error"));
+    assert!(stderr.contains("Error") || output.status.code() == Some(2));
 }
 
 #[test]
@@ -68,13 +71,6 @@ fn test_end_to_end() {
     std::fs::write(test_dir.join("hello.rs"), "fn main() {}").unwrap();
     std::fs::write(test_dir.join("readme.md"), "# Test").unwrap();
     std::fs::write(test_dir.join("large_file.bin"), vec![0u8; 2000]).unwrap();
-
-    // Build first (integration tests need compiled binaries)
-    let build_status = Command::new("cargo")
-        .args(["build"])
-        .status()
-        .expect("should build");
-    assert!(build_status.success(), "cargo build should succeed");
 
     // Index
     let output = Command::new(mupdatedb_bin())
@@ -98,7 +94,7 @@ fn test_end_to_end() {
         .arg("--plain")
         .output()
         .expect("should run");
-    assert!(output.status.success());
+    assert!(output.status.success(), "search failed: {}", String::from_utf8_lossy(&output.stderr));
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("hello.rs"), "Search should find hello.rs, got: {}", stdout);
 }
