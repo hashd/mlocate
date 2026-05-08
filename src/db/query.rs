@@ -6,6 +6,7 @@ pub struct SearchQuery {
     pub params: Vec<String>,
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn build_query(
     patterns: &[String],
     ignore_case: bool,
@@ -27,16 +28,19 @@ pub fn build_query(
             params.push(pattern.clone());
         } else if let Some(trigram_sql) = trigram::build_trigram_query(pattern, ignore_case, basename) {
             let sql = format!("id IN ({})", trigram_sql);
-            let pattern_for_grams = if ignore_case { pattern.to_ascii_lowercase() } else { pattern.to_string() };
-            for tri in trigram::generate_trigrams(&pattern_for_grams) {
+            for tri in trigram::generate_trigrams_lowercase(pattern) {
                 params.push(tri);
             }
             let like_pattern = if basename {
-                format!("%/{}", if ignore_case { pattern.to_ascii_lowercase() } else { pattern.to_string() })
+                if ignore_case {
+                    format!("%%/{pattern}%%", pattern = pattern.to_ascii_lowercase())
+                } else {
+                    format!("%%/{pattern}%%")
+                }
             } else if ignore_case {
-                pattern.to_ascii_lowercase()
+                format!("%%{pattern}%%", pattern = pattern.to_ascii_lowercase())
             } else {
-                pattern.to_string()
+                format!("%%{pattern}%%")
             };
             params.push(like_pattern);
             parts.push(sql);
@@ -47,11 +51,15 @@ pub fn build_query(
                 parts.push("id IN (SELECT id FROM files WHERE full_path LIKE ?)".to_string());
             }
             let like_pattern = if basename {
-                format!("%/{}", if ignore_case { pattern.to_ascii_lowercase() } else { pattern.to_string() })
+                if ignore_case {
+                    format!("%%/{pattern}%%", pattern = pattern.to_ascii_lowercase())
+                } else {
+                    format!("%%/{pattern}%%")
+                }
             } else if ignore_case {
-                pattern.to_ascii_lowercase()
+                format!("%%{pattern}%%", pattern = pattern.to_ascii_lowercase())
             } else {
-                pattern.to_string()
+                format!("%%{pattern}%%")
             };
             params.push(like_pattern);
         }
