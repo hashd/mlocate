@@ -27,5 +27,9 @@ pub const CREATE_TRIGRAMS: &str = "
     CREATE INDEX IF NOT EXISTS idx_trigrams_trigram ON trigrams(trigram);
 ";
 
-pub const GET_USER_VERSION: &str = "PRAGMA user_version;";
-pub const SET_USER_VERSION: &str = "PRAGMA user_version = 1;";
+pub const CREATE_SCHEMA_VERSION: &str = "
+    CREATE TABLE IF NOT EXISTS schema_version (version INTEGER);
+";
+
+pub const GET_USER_VERSION: &str = "SELECT version FROM schema_version";
+pub const SET_USER_VERSION: &str = "INSERT INTO schema_version (version) VALUES (1)";

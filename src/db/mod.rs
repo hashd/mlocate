@@ -33,6 +33,7 @@ pub fn open_or_create(path: &str) -> Result<Connection, MlocateError> {
         conn.execute_batch(schema::CREATE_DIRECTORIES)?;
         conn.execute_batch(schema::CREATE_FILES)?;
         conn.execute_batch(schema::CREATE_TRIGRAMS)?;
+        conn.execute_batch(schema::CREATE_SCHEMA_VERSION)?;
         conn.execute_batch(schema::SET_USER_VERSION)?;
     }
 
@@ -44,6 +45,7 @@ pub fn create_temp(path: &str) -> Result<Connection, MlocateError> {
     conn.execute_batch(schema::CREATE_DIRECTORIES)?;
     conn.execute_batch(schema::CREATE_FILES)?;
     conn.execute_batch(schema::CREATE_TRIGRAMS)?;
+    conn.execute_batch(schema::CREATE_SCHEMA_VERSION)?;
     conn.execute_batch(schema::SET_USER_VERSION)?;
     Ok(conn)
 }
