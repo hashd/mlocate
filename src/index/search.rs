@@ -186,7 +186,7 @@ pub fn search<'a>(
 fn trigram_search(
     reader: &IndexReader,
     patterns: &[String],
-    options: &SearchOptions,
+    _options: &SearchOptions,
     _filters: &SearchFilters,
 ) -> Result<RoaringBitmap, MlocateError> {
     let mut candidates: Option<RoaringBitmap> = None;
@@ -201,22 +201,14 @@ fn trigram_search(
     for pattern in patterns {
         if pattern.len() >= 3 {
             attempted = true;
-            let tris = if options.ignore_case {
-                trigram::generate_trigrams_lowercase(pattern)
-            } else {
-                trigram::generate_trigrams(pattern)
-            };
+            let tris = trigram::generate_trigrams_lowercase(pattern);
             let keys: Vec<[u8; 3]> = tris.iter().map(|t| trigram::trigram_to_bytes(t)).collect();
             all_trigram_keys.extend(keys.clone());
             pattern_trigrams.push(keys);
             pattern_bigrams.push(Vec::new());
         } else if pattern.len() == 2 {
             attempted = true;
-            let bis = if options.ignore_case {
-                trigram::generate_bigrams_lowercase(pattern)
-            } else {
-                trigram::generate_bigrams(pattern)
-            };
+            let bis = trigram::generate_bigrams_lowercase(pattern);
             let keys: Vec<[u8; 2]> = bis.iter().map(|b| trigram::bigram_to_bytes(b)).collect();
             all_bigram_keys.extend(keys.clone());
             pattern_bigrams.push(keys);
@@ -345,11 +337,7 @@ fn regex_search(
         let literals = extract_regex_literals(pattern);
         for lit in &literals {
             if lit.len() >= 3 {
-                let tris = if options.ignore_case {
-                    trigram::generate_trigrams_lowercase(lit)
-                } else {
-                    trigram::generate_trigrams(lit)
-                };
+                let tris = trigram::generate_trigrams_lowercase(lit);
                 let mut lit_and: Option<RoaringBitmap> = None;
                 for tri in &tris {
                     let key = trigram::trigram_to_bytes(tri);
