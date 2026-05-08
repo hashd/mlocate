@@ -25,9 +25,14 @@ fn setup_test_db(dir: &std::path::Path, db: &std::path::Path) {
 
 #[test]
 fn test_gnu_mode_plain_output() {
+    let tmp = tempfile::TempDir::new().unwrap();
+    let db = tmp.path().join("mlocate.db");
+    setup_test_db(tmp.path(), &db);
     let output = Command::new(mlocate_bin())
         .arg("--gnu")
         .arg("test")
+        .arg("--database")
+        .arg(&db)
         .output()
         .expect("should run");
     assert!(output.status.success(), "Command failed: {:?}", output);
@@ -37,8 +42,13 @@ fn test_gnu_mode_plain_output() {
 
 #[test]
 fn test_gnu_s_short_flag() {
+    let tmp = tempfile::TempDir::new().unwrap();
+    let db = tmp.path().join("mlocate.db");
+    setup_test_db(tmp.path(), &db);
     let output = Command::new(mlocate_bin())
         .arg("-S")
+        .arg("--database")
+        .arg(&db)
         .output()
         .expect("should run");
     assert!(output.status.success(), "Command failed: {:?}", output);

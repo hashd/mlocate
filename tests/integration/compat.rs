@@ -78,7 +78,7 @@ fn test_count_flag() {
     setup_test_db(tmp.path(), &db);
     let output = Command::new(mlocate_bin())
         .arg("--count")
-        .arg("testpattern")
+        .arg("test_file")
         .arg("--database")
         .arg(&db)
         .output()

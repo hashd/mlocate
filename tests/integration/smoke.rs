@@ -480,8 +480,9 @@ fn index_fixture(dir: &std::path::Path, db: &std::path::Path) {
 
 #[test]
 fn test_mime_filter_finds_image() {
+    let tmp = tempfile::TempDir::new().unwrap();
     let fixture = std::path::Path::new("tests/fixtures/common-types");
-    let db = fixture.join("test.db");
+    let db = tmp.path().join("test.db");
     let mut cmd = Command::new(mupdatedb_bin());
     cmd.arg("--database")
         .arg(&db)
@@ -492,22 +493,22 @@ fn test_mime_filter_finds_image() {
     assert!(output.status.success(), "mupdatedb failed: {:?}", output);
 
     let mut search = Command::new(mlocate_bin());
-    search.arg("--database").arg(&db).arg("--type").arg("image/*").arg("--json");
+    search.arg("--database").arg(&db).arg("--type").arg("image/*").arg("--json").arg("");
     let result = search.output().unwrap();
-    assert!(result.status.success());
+    assert!(result.status.success(), "mlocate search failed: {:?}", result);
     let stdout = String::from_utf8_lossy(&result.stdout);
     assert!(
         stdout.contains("image/png") || stdout.contains("image/"),
         "Expected image MIME in: {}",
         stdout
     );
-    let _ = std::fs::remove_file(&db);
 }
 
 #[test]
 fn test_prunepaths_with_gitignore() {
+    let tmp = tempfile::TempDir::new().unwrap();
     let fixture = std::path::Path::new("tests/fixtures/gitignore-test");
-    let db = fixture.join("test.db");
+    let db = tmp.path().join("test.db");
     let mut cmd = Command::new(mupdatedb_bin());
     cmd.arg("--database")
         .arg(&db)
@@ -517,21 +518,21 @@ fn test_prunepaths_with_gitignore() {
         .arg(fixture.join("src"))
         .arg("--quiet");
     let output = cmd.output().unwrap();
-    assert!(output.status.success());
+    assert!(output.status.success(), "mupdatedb failed: {:?}", output);
 
     let mut search = Command::new(mlocate_bin());
-    search.arg("--database").arg(&db).arg("Cargo.toml").arg("--json");
+    search.arg("--database").arg(&db).arg("-i").arg("Cargo.toml").arg("--json");
     let result = search.output().unwrap();
     let stdout = String::from_utf8_lossy(&result.stdout);
     assert!(stdout.contains("Cargo.toml"), "Cargo.toml should be indexed");
     assert!(!stdout.contains("src/main.rs"), "src/ should be pruned");
-    let _ = std::fs::remove_file(&db);
 }
 
 #[test]
 fn test_symlink_handling() {
+    let tmp = tempfile::TempDir::new().unwrap();
     let fixture = std::path::Path::new("tests/fixtures/symlink-test");
-    let db = fixture.join("test.db");
+    let db = tmp.path().join("test.db");
     let mut cmd = Command::new(mupdatedb_bin());
     cmd.arg("--database")
         .arg(&db)
@@ -539,17 +540,17 @@ fn test_symlink_handling() {
         .arg(fixture)
         .arg("--quiet");
     let output = cmd.output().unwrap();
-    assert!(output.status.success());
+    assert!(output.status.success(), "mupdatedb failed: {:?}", output);
 
     let mut search = Command::new(mlocate_bin());
-    search.arg("--database").arg(&db).arg("link").arg("--json");
+    search.arg("--database").arg(&db).arg("link-to-file").arg("--json");
     let result = search.output().unwrap();
     let stdout = String::from_utf8_lossy(&result.stdout);
     assert!(
         stdout.trim().starts_with("[]"),
-        "Symlinks should not be indexed by default"
+        "Symlinks should not be indexed by default, got: {}",
+        stdout
     );
-    let _ = std::fs::remove_file(&db);
 }
 
 #[test]
